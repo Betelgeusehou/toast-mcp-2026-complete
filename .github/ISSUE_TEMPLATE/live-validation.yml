@@ -1,0 +1,52 @@
+name: Live Toast validation
+description: Share redacted sandbox or production behavior without secrets or customer data.
+title: "[Live validation]: "
+labels: ["live-validation"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Never include credentials, access URLs, restaurant GUIDs, guest information, payment data, or raw customer payloads.
+  - type: dropdown
+    id: environment
+    attributes:
+      label: Environment
+      options:
+        - Toast sandbox
+        - Toast production
+    validations:
+      required: true
+  - type: dropdown
+    id: integration
+    attributes:
+      label: Integration type
+      options:
+        - Standard API access
+        - Partner integration
+        - Custom integration
+        - Analytics API access
+        - Unknown
+    validations:
+      required: true
+  - type: input
+    id: operation
+    attributes:
+      label: API operation
+      description: Use the method and path only, with identifiers redacted.
+      placeholder: GET /orders/v2/ordersBulk
+    validations:
+      required: true
+  - type: textarea
+    id: observation
+    attributes:
+      label: Redacted observation
+      description: Describe status, response shape, pagination, rate limits, or errors without customer data.
+    validations:
+      required: true
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: Safety confirmation
+      options:
+        - label: I removed credentials, identifiers, guest data, payment data, and raw customer payloads.
+          required: true

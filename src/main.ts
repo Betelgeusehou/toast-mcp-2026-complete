@@ -1,119 +1,171 @@
 #!/usr/bin/env node
 
-import { ToastMCPServer } from './server.js';
+import { createServer as nodeCreateServer } from 'node:http';
+import { serveStdio } from '@modelcontextprotocol/server/stdio';
+import { loadConfig } from './config.js';
+import { createDataSource } from './data-source.js';
+import { createToastHttpHandler, createToastMcpServer } from './server.js';
 
-/**
- * Toast MCP Server Entry Point
- * Supports both stdio and HTTP modes
- */
+const MAX_HTTP_BODY_BYTES = 1_048_576;
 
-interface Config {
-  clientId?: string;
-  clientSecret?: string;
-  restaurantGuid?: string;
-  environment?: 'production' | 'sandbox';
-  mode?: 'stdio' | 'http';
-  port?: number;
+interface HttpIncoming {
+  method?: string;
+  url?: string;
+  headers: Record<string, string | string[] | undefined>;
+  once(event: 'aborted', callback: () => void): void;
+  [Symbol.asyncIterator](): AsyncIterator<Uint8Array | string>;
 }
 
-function loadConfig(): Config {
-  const config: Config = {
-    mode: (process.env.TOAST_MCP_MODE as 'stdio' | 'http') || 'stdio',
-    port: process.env.TOAST_MCP_PORT ? parseInt(process.env.TOAST_MCP_PORT) : 3000,
-  };
-
-  // Load from environment variables
-  config.clientId = process.env.TOAST_CLIENT_ID;
-  config.clientSecret = process.env.TOAST_CLIENT_SECRET;
-  config.restaurantGuid = process.env.TOAST_RESTAURANT_GUID;
-  config.environment = (process.env.TOAST_ENVIRONMENT as 'production' | 'sandbox') || 'production';
-
-  // Validate required fields
-  if (!config.clientId) {
-    console.error('Error: TOAST_CLIENT_ID environment variable is required');
-    process.exit(1);
-  }
-
-  if (!config.clientSecret) {
-    console.error('Error: TOAST_CLIENT_SECRET environment variable is required');
-    process.exit(1);
-  }
-
-  return config;
+interface HttpOutgoing {
+  statusCode: number;
+  headersSent: boolean;
+  writableEnded: boolean;
+  once(event: 'close' | 'drain', callback: () => void): void;
+  setHeader(name: string, value: string): void;
+  write(chunk: Uint8Array): boolean;
+  end(chunk?: string): void;
 }
 
-async function main() {
-  const config = loadConfig();
+interface HttpServer {
+  listen(port: number, host: string, callback: () => void): void;
+  close(callback: (error?: Error) => void): void;
+}
 
-  console.error('[Toast MCP] Starting server...');
-  console.error(`[Toast MCP] Mode: ${config.mode}`);
-  console.error(`[Toast MCP] Environment: ${config.environment}`);
-  if (config.restaurantGuid) {
-    console.error(`[Toast MCP] Restaurant GUID: ${config.restaurantGuid}`);
-  }
+const createHttpServer = nodeCreateServer as unknown as (
+  callback: (request: HttpIncoming, response: HttpOutgoing) => void,
+) => HttpServer;
 
-  try {
-    if (config.mode === 'stdio') {
-      // Stdio mode - standard MCP server
-      const server = new ToastMCPServer({
-        clientId: config.clientId!,
-        clientSecret: config.clientSecret!,
-        restaurantGuid: config.restaurantGuid,
-        environment: config.environment,
-      });
-
-      await server.run();
-    } else if (config.mode === 'http') {
-      // HTTP mode - for web UI and API access
-      const express = await import('express');
-      const cors = await import('cors');
-      const app = express.default();
-
-      app.use(cors.default());
-      app.use(express.json());
-
-      // Serve static UI files
-      app.use('/apps', express.static('dist/ui'));
-
-      // Health check
-      app.get('/health', (req, res) => {
-        res.json({ status: 'ok', service: 'toast-mcp-server', version: '1.0.0' });
-      });
-
-      // API endpoint for tool execution
-      app.post('/api/tools/:toolName', async (req, res) => {
-        try {
-          const server = new ToastMCPServer({
-            clientId: config.clientId!,
-            clientSecret: config.clientSecret!,
-            restaurantGuid: config.restaurantGuid,
-            environment: config.environment,
-          });
-
-          // This would need to be refactored to support HTTP-based tool calls
-          // For now, returning placeholder
-          res.json({
-            error: 'HTTP tool execution not yet implemented',
-            message: 'Use stdio mode for MCP integration',
-          });
-        } catch (error: any) {
-          res.status(500).json({ error: error.message });
-        }
-      });
-
-      const port = config.port || 3000;
-      app.listen(port, () => {
-        console.error(`[Toast MCP] HTTP server listening on port ${port}`);
-        console.error(`[Toast MCP] UI available at http://localhost:${port}/apps/`);
-      });
+async function requestBody(request: HttpIncoming): Promise<ArrayBuffer | undefined> {
+  if (request.method === 'GET' || request.method === 'HEAD') return undefined;
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  for await (const chunk of request) {
+    const bytes = typeof chunk === 'string' ? Buffer.from(chunk) : chunk;
+    size += bytes.length;
+    if (size > MAX_HTTP_BODY_BYTES) {
+      throw new Error('HTTP request body exceeds 1 MB');
     }
-  } catch (error) {
-    console.error('[Toast MCP] Fatal error:', error);
-    process.exit(1);
+    chunks.push(bytes);
+  }
+  return size > 0
+    ? (Uint8Array.from(Buffer.concat(chunks, size)).buffer as ArrayBuffer)
+    : undefined;
+}
+
+async function toWebRequest(
+  request: HttpIncoming,
+  signal: AbortSignal,
+): Promise<Request> {
+  const host = request.headers.host ?? '127.0.0.1';
+  const url = new URL(request.url ?? '/', `http://${host}`);
+  const body = await requestBody(request);
+  const headers = new Headers();
+  for (const [name, value] of Object.entries(request.headers)) {
+    if (Array.isArray(value)) {
+      for (const entry of value) headers.append(name, entry);
+    } else if (value !== undefined) {
+      headers.set(name, value);
+    }
+  }
+  return new Request(url, {
+    method: request.method ?? 'POST',
+    headers,
+    ...(body ? { body } : {}),
+    signal,
+  });
+}
+
+async function sendWebResponse(
+  response: Response,
+  outgoing: HttpOutgoing,
+): Promise<void> {
+  outgoing.statusCode = response.status;
+  response.headers.forEach((value, name) => outgoing.setHeader(name, value));
+  if (!response.body) {
+    outgoing.end();
+    return;
+  }
+  const reader = response.body.getReader();
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (!outgoing.write(value)) {
+        await new Promise<void>((resolve) => outgoing.once('drain', resolve));
+      }
+    }
+    outgoing.end();
+  } finally {
+    reader.releaseLock();
   }
 }
 
-main().catch(error => {
-  console.error('[Toast MCP] Unhandled error:', error);
-  process.exit(1);
+async function main(): Promise<void> {
+  const config = loadConfig();
+  const source = createDataSource(config);
+
+  console.error(
+    `[Toast MCP] Starting v2 in ${source.kind} mode over ${config.transport}`,
+  );
+
+  if (config.transport === 'stdio') {
+    const handle = serveStdio(() => createToastMcpServer(source), {
+      onerror: (error) => console.error('[Toast MCP]', error),
+    });
+    const close = async () => {
+      await handle.close();
+      process.exit(0);
+    };
+    process.once('SIGINT', close);
+    process.once('SIGTERM', close);
+    return;
+  }
+
+  const { fetch, handler } = createToastHttpHandler(source, config);
+  const nodeServer = createHttpServer((request, response) => {
+    const abortController = new AbortController();
+    request.once('aborted', () => abortController.abort());
+    response.once('close', () => {
+      if (!response.writableEnded) abortController.abort();
+    });
+    void (async () => {
+      try {
+        await sendWebResponse(
+          await fetch(await toWebRequest(request, abortController.signal)),
+          response,
+        );
+      } catch (error) {
+        if (!response.headersSent) {
+          response.statusCode =
+            error instanceof Error && error.message.includes('exceeds 1 MB')
+              ? 413
+              : 500;
+          response.setHeader('content-type', 'application/json');
+        }
+        if (!response.writableEnded) {
+          response.end(JSON.stringify({ error: 'HTTP request failed' }));
+        }
+      }
+    })();
+  });
+  nodeServer.listen(config.port, config.host, () => {
+    console.error(
+      `[Toast MCP] MCP endpoint listening at http://${config.host}:${config.port}/mcp`,
+    );
+  });
+  const close = async () => {
+    await handler.close();
+    await new Promise<void>((resolve, reject) => {
+      nodeServer.close((error) => (error ? reject(error) : resolve()));
+    });
+    process.exit(0);
+  };
+  process.once('SIGINT', close);
+  process.once('SIGTERM', close);
+}
+
+main().catch((error: unknown) => {
+  const message = error instanceof Error ? error.message : String(error);
+  console.error(`[Toast MCP] Fatal: ${message}`);
+  process.exitCode = 1;
 });

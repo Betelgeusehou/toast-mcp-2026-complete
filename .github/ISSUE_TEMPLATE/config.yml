@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Toast API documentation
+    url: https://doc.toasttab.com/openapi/
+    about: Check the official contract before requesting an API behavior change.

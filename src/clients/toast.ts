@@ -1,280 +1,257 @@
-import axios, { AxiosInstance, AxiosError, AxiosRequestConfig } from 'axios';
-import type {
-  ToastConfig,
-  ToastAuthToken,
-  ToastError,
-  PaginationParams,
-  PaginatedResponse,
-} from '../types/index.js';
+import { z } from 'zod';
 
-export class ToastClient {
-  private axiosInstance: AxiosInstance;
-  private authToken?: ToastAuthToken;
-  private tokenExpiration?: number;
-  private config: ToastConfig;
-  private baseURL: string;
+export interface ToastClientConfig {
+  accessUrl: string;
+  clientId: string;
+  clientSecret: string;
+  fetchImpl?: typeof fetch;
+  timeoutMs?: number;
+}
 
-  constructor(config: ToastConfig) {
-    this.config = config;
-    this.baseURL =
-      config.environment === 'sandbox'
-        ? 'https://ws-sandbox-api.eng.toasttab.com'
-        : 'https://ws-api.toasttab.com';
+interface RequestOptions {
+  restaurantGuid?: string | undefined;
+  query?: Record<string, string | number | undefined> | undefined;
+  signal?: AbortSignal | undefined;
+}
 
-    this.axiosInstance = axios.create({
-      baseURL: this.baseURL,
-      headers: {
-        'Content-Type': 'application/json',
+const LoginResponseSchema = z.looseObject({
+  token: z.looseObject({
+    accessToken: z.string().min(1),
+    expiresIn: z.number().positive(),
+  }),
+});
+
+export class ToastApiError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+    readonly requestId?: string,
+  ) {
+    super(message);
+    this.name = 'ToastApiError';
+  }
+}
+
+function abortableDelay(milliseconds: number, signal?: AbortSignal): Promise<void> {
+  if (milliseconds <= 0) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(resolve, milliseconds);
+    signal?.addEventListener(
+      'abort',
+      () => {
+        clearTimeout(timer);
+        reject(signal.reason ?? new Error('Request aborted'));
       },
-      timeout: 30000,
-    });
-
-    // Request interceptor for auth
-    this.axiosInstance.interceptors.request.use(
-      async (config) => {
-        await this.ensureValidToken();
-        if (this.authToken) {
-          config.headers.Authorization = `Bearer ${this.authToken.access_token}`;
-        }
-        // Add Toast-Restaurant-External-ID header if available
-        if (this.config.restaurantGuid) {
-          config.headers['Toast-Restaurant-External-ID'] = this.config.restaurantGuid;
-        }
-        return config;
-      },
-      (error) => Promise.reject(error)
+      { once: true },
     );
+  });
+}
 
-    // Response interceptor for error handling
-    this.axiosInstance.interceptors.response.use(
-      (response) => response,
-      (error: AxiosError) => {
-        return Promise.reject(this.handleError(error));
-      }
+function combinedSignal(signal: AbortSignal | undefined, timeoutMs: number): AbortSignal {
+  const timeoutSignal = AbortSignal.timeout(timeoutMs);
+  return signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal;
+}
+
+function retryDelay(response: Response, attempt: number): number {
+  const retryAfter = response.headers.get('retry-after');
+  if (retryAfter) {
+    const seconds = Number(retryAfter);
+    if (Number.isFinite(seconds)) return Math.max(0, seconds * 1_000);
+    const date = Date.parse(retryAfter);
+    if (Number.isFinite(date)) return Math.max(0, date - Date.now());
+  }
+  return Math.min(4_000, 250 * 2 ** attempt) + Math.floor(Math.random() * 100);
+}
+
+async function safeErrorMessage(response: Response): Promise<string> {
+  const fallback = `Toast API request failed with HTTP ${response.status}`;
+  try {
+    const body = (await response.json()) as Record<string, unknown>;
+    const candidate = body.message ?? body.error ?? body.code;
+    return typeof candidate === 'string' ? `${fallback}: ${candidate}` : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+/**
+ * Minimal read-only client for the current public Toast contracts.
+ * The provisioned API Access URL is configuration; Toast does not publish a
+ * universal production hostname for integrations.
+ */
+export class ToastClient {
+  private readonly fetchImpl: typeof fetch;
+  private readonly timeoutMs: number;
+  private accessToken: string | undefined;
+  private accessTokenExpiresAt = 0;
+  private tokenPromise: Promise<string> | undefined;
+  private pacingQueue: Promise<void> = Promise.resolve();
+  private nextRequestAt = 0;
+
+  constructor(private readonly config: ToastClientConfig) {
+    this.fetchImpl = config.fetchImpl ?? fetch;
+    this.timeoutMs = config.timeoutMs ?? 20_000;
+  }
+
+  async getRestaurant(restaurantGuid: string, signal?: AbortSignal): Promise<unknown> {
+    return this.get(
+      `/restaurants/v1/restaurants/${encodeURIComponent(restaurantGuid)}`,
+      { restaurantGuid, signal },
     );
   }
 
-  /**
-   * Ensure we have a valid authentication token
-   */
-  private async ensureValidToken(): Promise<void> {
-    const now = Date.now();
+  async findOrders(
+    restaurantGuid: string,
+    startDate: string,
+    endDate: string,
+    page = 1,
+    pageSize = 100,
+    signal?: AbortSignal,
+  ): Promise<unknown> {
+    return this.get('/orders/v2/ordersBulk', {
+      restaurantGuid,
+      query: { startDate, endDate, page, pageSize },
+      signal,
+    });
+  }
 
-    // Check if token exists and is still valid (with 5 minute buffer)
-    if (this.authToken && this.tokenExpiration && this.tokenExpiration > now + 300000) {
-      return;
+  async getOrder(
+    restaurantGuid: string,
+    orderGuid: string,
+    signal?: AbortSignal,
+  ): Promise<unknown> {
+    return this.get(`/orders/v2/orders/${encodeURIComponent(orderGuid)}`, {
+      restaurantGuid,
+      signal,
+    });
+  }
+
+  async getMenus(restaurantGuid: string, signal?: AbortSignal): Promise<unknown> {
+    return this.get('/menus/v2/menus', { restaurantGuid, signal });
+  }
+
+  async getMenuMetadata(
+    restaurantGuid: string,
+    signal?: AbortSignal,
+  ): Promise<unknown> {
+    return this.get('/menus/v2/metadata', { restaurantGuid, signal });
+  }
+
+  async getInventory(
+    restaurantGuid: string,
+    status?: string,
+    signal?: AbortSignal,
+  ): Promise<unknown> {
+    return this.get('/stock/v1/inventory', {
+      restaurantGuid,
+      query: { status },
+      signal,
+    });
+  }
+
+  private async get(path: string, options: RequestOptions): Promise<unknown> {
+    const url = new URL(`${this.config.accessUrl}${path}`);
+    for (const [key, value] of Object.entries(options.query ?? {})) {
+      if (value !== undefined) url.searchParams.set(key, String(value));
     }
 
-    // Get new token
-    await this.authenticate();
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      await this.pace(path, options.signal);
+      const token = await this.getAccessToken(options.signal);
+      const headers = new Headers({
+        accept: 'application/json',
+        authorization: `Bearer ${token}`,
+      });
+      if (options.restaurantGuid) {
+        headers.set('Toast-Restaurant-External-ID', options.restaurantGuid);
+      }
+
+      const response = await this.fetchImpl(url, {
+        method: 'GET',
+        headers,
+        signal: combinedSignal(options.signal, this.timeoutMs),
+      });
+
+      if (response.status === 401 && attempt === 0) {
+        this.clearToken();
+        continue;
+      }
+      if ((response.status === 429 || response.status >= 500) && attempt < 2) {
+        await abortableDelay(retryDelay(response, attempt), options.signal);
+        continue;
+      }
+      if (!response.ok) {
+        throw new ToastApiError(
+          await safeErrorMessage(response),
+          response.status,
+          response.headers.get('toast-request-id') ??
+            response.headers.get('x-request-id') ??
+            undefined,
+        );
+      }
+      if (response.status === 204) return null;
+      return response.json() as Promise<unknown>;
+    }
+
+    throw new ToastApiError('Toast API request failed after retries', 503);
   }
 
-  /**
-   * Authenticate with Toast API using client credentials
-   */
-  private async authenticate(): Promise<void> {
-    try {
-      const authURL =
-        this.config.environment === 'sandbox'
-          ? 'https://ws-sandbox-api.eng.toasttab.com/authentication/v1/authentication/login'
-          : 'https://ws-api.toasttab.com/authentication/v1/authentication/login';
+  private async getAccessToken(signal?: AbortSignal): Promise<string> {
+    if (this.accessToken && Date.now() < this.accessTokenExpiresAt - 5 * 60_000) {
+      return this.accessToken;
+    }
+    if (!this.tokenPromise) {
+      this.tokenPromise = this.login(signal).finally(() => {
+        this.tokenPromise = undefined;
+      });
+    }
+    return this.tokenPromise;
+  }
 
-      const response = await axios.post<ToastAuthToken>(
-        authURL,
-        {
+  private async login(signal?: AbortSignal): Promise<string> {
+    const response = await this.fetchImpl(
+      `${this.config.accessUrl}/authentication/v1/authentication/login`,
+      {
+        method: 'POST',
+        headers: {
+          accept: 'application/json',
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({
           clientId: this.config.clientId,
           clientSecret: this.config.clientSecret,
           userAccessType: 'TOAST_MACHINE_CLIENT',
-        },
-        {
-          headers: {
-            'Content-Type': 'application/json',
-          },
-        }
+        }),
+        signal: combinedSignal(signal, this.timeoutMs),
+      },
+    );
+    if (!response.ok) {
+      throw new ToastApiError(
+        await safeErrorMessage(response),
+        response.status,
+        response.headers.get('toast-request-id') ?? undefined,
       );
-
-      this.authToken = response.data;
-      // Calculate expiration timestamp
-      this.tokenExpiration = Date.now() + this.authToken.expires_in * 1000;
-    } catch (error) {
-      throw this.handleError(error as AxiosError);
     }
+    const parsed = LoginResponseSchema.parse(await response.json());
+    this.accessToken = parsed.token.accessToken;
+    this.accessTokenExpiresAt = Date.now() + parsed.token.expiresIn * 1_000;
+    return this.accessToken;
   }
 
-  /**
-   * Handle API errors consistently
-   */
-  private handleError(error: AxiosError): ToastError {
-    if (error.response) {
-      const status = error.response.status;
-      const data = error.response.data as any;
-
-      return {
-        message: data?.message || error.message || 'Unknown error occurred',
-        code: data?.code || `HTTP_${status}`,
-        status,
-        details: data,
-      };
-    } else if (error.request) {
-      return {
-        message: 'No response received from Toast API',
-        code: 'NO_RESPONSE',
-        details: error.message,
-      };
-    } else {
-      return {
-        message: error.message || 'Request setup failed',
-        code: 'REQUEST_SETUP_ERROR',
-        details: error,
-      };
-    }
+  private clearToken(): void {
+    this.accessToken = undefined;
+    this.accessTokenExpiresAt = 0;
   }
 
-  /**
-   * Generic GET request with pagination support
-   */
-  async get<T>(
-    endpoint: string,
-    params?: Record<string, any>,
-    config?: AxiosRequestConfig
-  ): Promise<T> {
-    const response = await this.axiosInstance.get<T>(endpoint, {
-      params,
-      ...config,
+  private async pace(path: string, signal?: AbortSignal): Promise<void> {
+    const minimumInterval =
+      path === '/menus/v2/menus' ? 1_000 : path.includes('ordersBulk') ? 200 : 50;
+    const turn = this.pacingQueue.then(async () => {
+      const delay = Math.max(0, this.nextRequestAt - Date.now());
+      await abortableDelay(delay, signal);
+      this.nextRequestAt = Date.now() + minimumInterval;
     });
-    return response.data;
-  }
-
-  /**
-   * Generic POST request
-   */
-  async post<T>(
-    endpoint: string,
-    data?: any,
-    config?: AxiosRequestConfig
-  ): Promise<T> {
-    const response = await this.axiosInstance.post<T>(endpoint, data, config);
-    return response.data;
-  }
-
-  /**
-   * Generic PUT request
-   */
-  async put<T>(
-    endpoint: string,
-    data?: any,
-    config?: AxiosRequestConfig
-  ): Promise<T> {
-    const response = await this.axiosInstance.put<T>(endpoint, data, config);
-    return response.data;
-  }
-
-  /**
-   * Generic PATCH request
-   */
-  async patch<T>(
-    endpoint: string,
-    data?: any,
-    config?: AxiosRequestConfig
-  ): Promise<T> {
-    const response = await this.axiosInstance.patch<T>(endpoint, data, config);
-    return response.data;
-  }
-
-  /**
-   * Generic DELETE request
-   */
-  async delete<T>(endpoint: string, config?: AxiosRequestConfig): Promise<T> {
-    const response = await this.axiosInstance.delete<T>(endpoint, config);
-    return response.data;
-  }
-
-  /**
-   * Paginated GET request helper
-   */
-  async getPaginated<T>(
-    endpoint: string,
-    params?: PaginationParams & Record<string, any>
-  ): Promise<PaginatedResponse<T>> {
-    const { page = 1, pageSize = 100, ...otherParams } = params || {};
-
-    const response = await this.get<T[]>(endpoint, {
-      page,
-      pageSize,
-      ...otherParams,
-    });
-
-    return {
-      data: response,
-      page,
-      pageSize,
-      hasMore: Array.isArray(response) && response.length === pageSize,
-    };
-  }
-
-  /**
-   * Fetch all pages of a paginated endpoint
-   */
-  async getAllPages<T>(
-    endpoint: string,
-    params?: PaginationParams & Record<string, any>
-  ): Promise<T[]> {
-    const allResults: T[] = [];
-    let page = 1;
-    const pageSize = params?.pageSize || 100;
-
-    while (true) {
-      const result = await this.getPaginated<T>(endpoint, {
-        ...params,
-        page,
-        pageSize,
-      });
-
-      allResults.push(...result.data);
-
-      if (!result.hasMore) {
-        break;
-      }
-
-      page++;
-    }
-
-    return allResults;
-  }
-
-  /**
-   * Get the restaurant GUID from config
-   */
-  getRestaurantGuid(): string {
-    if (!this.config.restaurantGuid) {
-      throw new Error('Restaurant GUID not configured');
-    }
-    return this.config.restaurantGuid;
-  }
-
-  /**
-   * Set restaurant GUID dynamically
-   */
-  setRestaurantGuid(guid: string): void {
-    this.config.restaurantGuid = guid;
-  }
-
-  /**
-   * Get base URL
-   */
-  getBaseURL(): string {
-    return this.baseURL;
-  }
-
-  /**
-   * Test connection
-   */
-  async testConnection(): Promise<boolean> {
-    try {
-      await this.ensureValidToken();
-      return true;
-    } catch (error) {
-      return false;
-    }
+    this.pacingQueue = turn.catch(() => undefined);
+    await turn;
   }
 }

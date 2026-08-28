@@ -1,0 +1,40 @@
+name: API tool request
+description: Propose a tool backed by an official Toast API operation.
+title: "[Tool request]: "
+labels: ["enhancement"]
+body:
+  - type: input
+    id: operation
+    attributes:
+      label: Official Toast operation
+      placeholder: GET /restaurant-availability/v1/availability
+    validations:
+      required: true
+  - type: input
+    id: source
+    attributes:
+      label: Official documentation URL
+    validations:
+      required: true
+  - type: textarea
+    id: use_case
+    attributes:
+      label: Customer use case
+      description: Explain the outcome rather than only the endpoint.
+    validations:
+      required: true
+  - type: dropdown
+    id: risk
+    attributes:
+      label: Operation class
+      options:
+        - Read-only
+        - Write or side effect
+        - Unsure
+    validations:
+      required: true
+  - type: textarea
+    id: access
+    attributes:
+      label: Known scope and access requirements
+      description: Include integration type and scope if known.

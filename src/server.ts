@@ -1,180 +1,160 @@
-import { Server } from '@modelcontextprotocol/sdk/server/index.js';
-import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
-import {
-  CallToolRequestSchema,
-  ListToolsRequestSchema,
-} from '@modelcontextprotocol/sdk/types.js';
-import { z } from 'zod';
-import { ToastClient } from './clients/toast.js';
-import { registerOrdersTools } from './tools/orders.js';
-import { registerMenusTools } from './tools/menus.js';
-import { registerEmployeesTools } from './tools/employees.js';
-import { registerLaborTools } from './tools/labor.js';
-import { registerRestaurantTools } from './tools/restaurant.js';
-import { registerPaymentsTools } from './tools/payments.js';
-import { registerInventoryTools } from './tools/inventory.js';
-import { registerCustomersTools } from './tools/customers.js';
-import { registerReportingTools } from './tools/reporting.js';
-import { registerCashTools } from './tools/cash.js';
+import { readFile } from 'node:fs/promises';
+import { createMcpHandler, McpServer } from '@modelcontextprotocol/server';
+import type { AppConfig } from './config.js';
+import type { ToastDataSource } from './data-source.js';
+import { OPERATIONS_RESOURCE_URI, registerToastTools } from './tools.js';
 
-/**
- * Toast MCP Server - Complete restaurant POS/management platform integration
- */
+const APP_MIME_TYPE = 'text/html;profile=mcp-app';
+const LOCAL_HOSTS = ['localhost', '127.0.0.1', '[::1]'];
 
-interface ToastServerConfig {
-  apiKey?: string;
-  clientId: string;
-  clientSecret: string;
-  restaurantGuid?: string;
-  environment?: 'production' | 'sandbox';
+interface HttpHandlerRuntime {
+  fetch(request: Request): Promise<Response>;
+  close(): Promise<void>;
 }
 
-export class ToastMCPServer {
-  private server: Server;
-  private client: ToastClient;
-  private tools: Map<string, any>;
-
-  constructor(config: ToastServerConfig) {
-    this.server = new Server(
-      {
-        name: 'toast-mcp-server',
-        version: '1.0.0',
-      },
-      {
-        capabilities: {
-          tools: {},
-        },
-      }
-    );
-
-    // Initialize Toast client
-    this.client = new ToastClient({
-      apiKey: config.apiKey || '',
-      clientId: config.clientId,
-      clientSecret: config.clientSecret,
-      restaurantGuid: config.restaurantGuid,
-      environment: config.environment || 'production',
-    });
-
-    // Register all tools from all modules
-    this.tools = new Map();
-    this.registerAllTools();
-
-    // Set up request handlers
-    this.setupHandlers();
-
-    // Error handling
-    this.server.onerror = (error) => {
-      console.error('[MCP Error]', error);
-    };
-
-    process.on('SIGINT', async () => {
-      await this.server.close();
-      process.exit(0);
-    });
+function requestHostname(value: string): string | undefined {
+  try {
+    return new URL(`http://${value}`).hostname;
+  } catch {
+    return undefined;
   }
+}
 
-  private registerAllTools() {
-    const toolModules = [
-      registerOrdersTools(this.client),
-      registerMenusTools(this.client),
-      registerEmployeesTools(this.client),
-      registerLaborTools(this.client),
-      registerRestaurantTools(this.client),
-      registerPaymentsTools(this.client),
-      registerInventoryTools(this.client),
-      registerCustomersTools(this.client),
-      registerReportingTools(this.client),
-      registerCashTools(this.client),
-    ];
-
-    for (const tools of toolModules) {
-      for (const tool of tools) {
-        this.tools.set(tool.name, tool);
-      }
+function validateHttpRequest(
+  request: Request,
+  allowedHosts: string[],
+  allowedOrigins: string[],
+): Response | undefined {
+  const host = requestHostname(request.headers.get('host') ?? '');
+  if (!host || !allowedHosts.includes(host)) {
+    return new Response('Invalid Host header', { status: 403 });
+  }
+  const origin = request.headers.get('origin');
+  if (origin) {
+    let originHost: string | undefined;
+    try {
+      originHost = new URL(origin).hostname;
+    } catch {
+      return new Response('Invalid Origin header', { status: 403 });
     }
-
-    console.error(`[Toast MCP] Registered ${this.tools.size} tools`);
+    if (!allowedOrigins.includes(originHost)) {
+      return new Response('Origin is not allowed', { status: 403 });
+    }
   }
-
-  private setupHandlers() {
-    // List available tools
-    this.server.setRequestHandler(ListToolsRequestSchema, async () => {
-      return {
-        tools: Array.from(this.tools.values()).map(tool => ({
-          name: tool.name,
-          description: tool.description,
-          inputSchema: tool.inputSchema.shape
-            ? {
-                type: 'object',
-                properties: Object.entries(tool.inputSchema.shape).reduce(
-                  (acc, [key, value]: [string, any]) => {
-                    acc[key] = {
-                      type: value._def?.typeName === 'ZodString' ? 'string' :
-                            value._def?.typeName === 'ZodNumber' ? 'number' :
-                            value._def?.typeName === 'ZodBoolean' ? 'boolean' :
-                            value._def?.typeName === 'ZodArray' ? 'array' :
-                            value._def?.typeName === 'ZodObject' ? 'object' :
-                            value._def?.typeName === 'ZodEnum' ? 'string' :
-                            'string',
-                      description: value.description || '',
-                      ...(value._def?.typeName === 'ZodEnum' && {
-                        enum: value._def.values,
-                      }),
-                      ...(value.isOptional() && {
-                        optional: true,
-                      }),
-                    };
-                    return acc;
-                  },
-                  {} as Record<string, any>
-                ),
-                required: Object.entries(tool.inputSchema.shape)
-                  .filter(([_, value]: [string, any]) => !value.isOptional())
-                  .map(([key]) => key),
-              }
-            : tool.inputSchema,
-        })),
-      };
-    });
-
-    // Handle tool execution
-    this.server.setRequestHandler(CallToolRequestSchema, async (request) => {
-      const tool = this.tools.get(request.params.name);
-      
-      if (!tool) {
-        throw new Error(`Unknown tool: ${request.params.name}`);
-      }
-
-      try {
-        // Validate input
-        const validatedArgs = tool.inputSchema.parse(request.params.arguments || {});
-
-        // Execute tool
-        const result = await tool.handler(validatedArgs);
-
-        return {
-          content: [
-            {
-              type: 'text',
-              text: JSON.stringify(result, null, 2),
-            },
-          ],
-        };
-      } catch (error: any) {
-        if (error instanceof z.ZodError) {
-          throw new Error(`Invalid arguments: ${error.errors.map(e => `${e.path.join('.')}: ${e.message}`).join(', ')}`);
-        }
-        throw error;
-      }
-    });
-  }
-
-  async run() {
-    const transport = new StdioServerTransport();
-    await this.server.connect(transport);
-    console.error('[Toast MCP] Server running on stdio');
-  }
+  return undefined;
 }
 
-export default ToastMCPServer;
+async function operationsAppHtml(): Promise<string> {
+  return readFile(new URL('../ui/operations/index.html', import.meta.url), 'utf8');
+}
+
+export function createToastMcpServer(source: ToastDataSource): McpServer {
+  const server = new McpServer(
+    {
+      name: 'toast-mcp-community',
+      title: 'Toast MCP Community Edition',
+      version: '2.0.0-beta.1',
+    },
+    {
+      capabilities: {
+        tools: {},
+        resources: {},
+      },
+    },
+  );
+
+  registerToastTools(server, source);
+  server.registerResource(
+    'Toast operations overview app',
+    OPERATIONS_RESOURCE_URI,
+    {
+      title: 'Toast Operations Overview',
+      description:
+        'Interactive, privacy-safe operations overview for the toast_show_operations_overview tool.',
+      mimeType: APP_MIME_TYPE,
+      _meta: {
+        ui: {
+          prefersBorder: true,
+          csp: {
+            connectDomains: [],
+            resourceDomains: [],
+            frameDomains: [],
+          },
+        },
+      },
+    },
+    async (uri) => ({
+      contents: [
+        {
+          uri: uri.href,
+          mimeType: APP_MIME_TYPE,
+          text: await operationsAppHtml(),
+          _meta: {
+            ui: {
+              prefersBorder: true,
+              csp: {
+                connectDomains: [],
+                resourceDomains: [],
+                frameDomains: [],
+              },
+            },
+          },
+        },
+      ],
+    }),
+  );
+
+  return server;
+}
+
+export function createToastHttpHandler(
+  source: ToastDataSource,
+  config: AppConfig,
+): { fetch: (request: Request) => Promise<Response>; handler: HttpHandlerRuntime } {
+  const handler = createMcpHandler(() => createToastMcpServer(source), {
+    onerror: (error) => console.error('[Toast MCP]', error),
+  });
+  const allowedHosts =
+    config.allowedHosts.length > 0
+      ? config.allowedHosts
+      : LOCAL_HOSTS;
+  const allowedOrigins =
+    config.allowedOrigins.length > 0
+      ? config.allowedOrigins
+      : LOCAL_HOSTS;
+  const fetch = async (request: Request): Promise<Response> => {
+    const rejected = validateHttpRequest(request, allowedHosts, allowedOrigins);
+    if (rejected) return rejected;
+    const url = new URL(request.url);
+    if (url.pathname === '/mcp') return handler.fetch(request);
+    if (request.method !== 'GET') {
+      return new Response('Method not allowed', {
+        status: 405,
+        headers: { allow: 'GET' },
+      });
+    }
+    if (url.pathname === '/') {
+      return Response.json({
+        service: 'Toast MCP Community Edition',
+        version: '2.0.0-beta.1',
+        mode: source.kind,
+        mcpEndpoint: '/mcp',
+        verification:
+          source.kind === 'demo'
+            ? 'demo_verified'
+            : 'contract_verified_live_unverified',
+      });
+    }
+    if (url.pathname === '/health') {
+      return Response.json({
+        status: 'ok',
+        service: 'toast-mcp-community',
+        version: '2.0.0-beta.1',
+        mode: source.kind,
+      });
+    }
+    return new Response('Not found', { status: 404 });
+  };
+
+  return { fetch, handler };
+}

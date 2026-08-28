@@ -1,0 +1,130 @@
+:root {
+  color-scheme: light dark;
+  --safe-top: 0px;
+  --safe-right: 0px;
+  --safe-bottom: 0px;
+  --safe-left: 0px;
+  --toast: #f05a28;
+  --toast-deep: #b93612;
+  --ink: var(--color-text-primary, #192126);
+  --muted: var(--color-text-secondary, #647078);
+  --surface: var(--color-background-primary, #ffffff);
+  --surface-raised: var(--color-background-secondary, #f5f6f4);
+  --border: var(--color-border-primary, #dfe3df);
+  --good: #15825e;
+  --warn: #b45d09;
+  --danger: #b42318;
+  font-family: var(--font-sans, Inter, ui-sans-serif, system-ui, sans-serif);
+  background: transparent;
+  color: var(--ink);
+}
+
+[data-theme='dark'] {
+  --ink: var(--color-text-primary, #f5f7f6);
+  --muted: var(--color-text-secondary, #aab4b2);
+  --surface: var(--color-background-primary, #141817);
+  --surface-raised: var(--color-background-secondary, #202624);
+  --border: var(--color-border-primary, #343d3a);
+  --good: #42c693;
+  --warn: #f3a34d;
+  --danger: #ff8378;
+}
+
+* { box-sizing: border-box; }
+body { margin: 0; background: transparent; }
+button, input, table { font: inherit; }
+
+#app {
+  padding: calc(18px + var(--safe-top)) calc(18px + var(--safe-right))
+    calc(18px + var(--safe-bottom)) calc(18px + var(--safe-left));
+  display: grid;
+  gap: 16px;
+  max-width: 960px;
+  margin: 0 auto;
+}
+
+.hero, .metric-card, .panel, .state-card {
+  background: color-mix(in srgb, var(--surface) 94%, transparent);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+}
+
+.hero {
+  position: relative;
+  overflow: hidden;
+  padding: 22px;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+}
+.hero::before {
+  content: '';
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 5px;
+  background: linear-gradient(var(--toast), #ffb13b);
+}
+.hero h1 { margin: 2px 0 4px; font-size: clamp(1.45rem, 4vw, 2rem); letter-spacing: -0.035em; }
+.eyebrow { margin: 0; color: var(--muted); font-size: .72rem; font-weight: 750; letter-spacing: .09em; text-transform: uppercase; }
+.subhead, .metric-detail { color: var(--muted); }
+.subhead { margin: 0; font-size: .86rem; }
+.mode-badge { border-radius: 999px; padding: 7px 11px; font-size: .72rem; font-weight: 750; white-space: nowrap; }
+.mode-badge.demo { color: var(--warn); background: color-mix(in srgb, var(--warn) 12%, transparent); }
+.mode-badge.live { color: var(--good); background: color-mix(in srgb, var(--good) 12%, transparent); }
+
+.metric-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+.metric-card { padding: 16px; min-width: 0; }
+.metric-value { display: block; margin: 8px 0 3px; font-size: clamp(1.45rem, 4vw, 2.1rem); letter-spacing: -.04em; }
+.metric-detail { display: block; font-size: .75rem; }
+
+.content-grid { display: grid; grid-template-columns: 1.2fr .8fr; gap: 12px; }
+.panel { padding: 18px; min-width: 0; }
+.panel h2 { margin: 0 0 16px; font-size: .92rem; letter-spacing: -.01em; }
+.bars { display: grid; gap: 13px; }
+.bar-label { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 6px; font-size: .78rem; }
+.bar-track { height: 7px; border-radius: 999px; background: var(--surface-raised); overflow: hidden; }
+.bar-fill { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, var(--toast), #ffa33b); }
+
+.inventory-list { list-style: none; padding: 0; margin: 0; display: grid; gap: 10px; }
+.inventory-list li { display: grid; grid-template-columns: minmax(0, 1fr) auto 32px; align-items: center; gap: 8px; font-size: .75rem; }
+.inventory-list strong { text-align: right; }
+.item-guid { color: var(--muted); font-family: var(--font-mono, ui-monospace, monospace); overflow: hidden; }
+.stock-pill, .order-status { width: fit-content; border-radius: 999px; padding: 4px 7px; font-size: .62rem; font-weight: 800; text-transform: uppercase; letter-spacing: .04em; }
+.stock-pill.quantity { color: var(--warn); background: color-mix(in srgb, var(--warn) 12%, transparent); }
+.stock-pill.out_of_stock { color: var(--danger); background: color-mix(in srgb, var(--danger) 12%, transparent); }
+.stock-pill.in_stock, .order-status.closed { color: var(--good); background: color-mix(in srgb, var(--good) 12%, transparent); }
+.order-status.open { color: var(--warn); background: color-mix(in srgb, var(--warn) 12%, transparent); }
+.order-status.voided { color: var(--danger); background: color-mix(in srgb, var(--danger) 12%, transparent); }
+
+.table-wrap { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; min-width: 520px; }
+th, td { padding: 11px 9px; border-bottom: 1px solid var(--border); text-align: left; font-size: .75rem; }
+th { color: var(--muted); font-size: .65rem; text-transform: uppercase; letter-spacing: .06em; }
+tbody tr:last-child td { border-bottom: 0; }
+.order-number, .money { font-weight: 750; }
+.money { text-align: right; font-variant-numeric: tabular-nums; }
+th:last-child { text-align: right; }
+
+footer { display: flex; justify-content: space-between; gap: 12px; padding: 0 3px; color: var(--muted); font-size: .68rem; }
+footer p { margin: 0; }
+.empty { color: var(--muted); font-size: .78rem; }
+.state-card { min-height: 180px; padding: 24px; display: grid; place-items: center; align-content: center; gap: 10px; text-align: center; }
+.state-card p, .state-card h2 { margin: 0; }
+.loader { width: 28px; height: 28px; border: 3px solid var(--border); border-top-color: var(--toast); border-radius: 50%; animation: spin .8s linear infinite; }
+.error-card { color: var(--danger); }
+.status-dot { width: 10px; height: 10px; border-radius: 50%; background: currentColor; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+@media (max-width: 620px) {
+  #app { padding: calc(12px + var(--safe-top)) calc(12px + var(--safe-right)) calc(12px + var(--safe-bottom)) calc(12px + var(--safe-left)); }
+  .metric-grid { grid-template-columns: 1fr 1fr; }
+  .metric-card:first-child { grid-column: 1 / -1; }
+  .content-grid { grid-template-columns: 1fr; }
+  .hero { flex-direction: column; }
+  footer { flex-direction: column; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .loader { animation: none; }
+}
