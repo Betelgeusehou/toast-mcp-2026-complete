@@ -89,6 +89,7 @@ export class ToastMCPServer {
     // Register all tools from all modules
     this.tools = new Map();
     this.registerAllTools();
+    this.registerLocationTools();
 
     // Set up request handlers
     this.setupHandlers();
@@ -131,6 +132,53 @@ export class ToastMCPServer {
     }
 
     console.error(`[Toast MCP] Registered ${this.tools.size} tools${skipped ? ` (${skipped} write tools disabled; set TOAST_ENABLE_WRITE_TOOLS=true to enable)` : ''}`);
+  }
+
+  /**
+   * Optional named-location support. Set TOAST_LOCATIONS to a JSON object of
+   * {"Location Name": "restaurant-guid", ...} and:
+   *  - a toast_get_locations tool is registered so clients can discover locations
+   *  - any tool's restaurantGuid argument accepts a location name (case-insensitive)
+   */
+  private locations: Record<string, string> = {};
+
+  private registerLocationTools() {
+    try {
+      this.locations = JSON.parse(process.env.TOAST_LOCATIONS || '{}');
+    } catch {
+      console.error('[Toast MCP] Warning: TOAST_LOCATIONS is not valid JSON; ignoring');
+      this.locations = {};
+    }
+    if (!Object.keys(this.locations).length) return;
+
+    const defaultGuid = process.env.TOAST_RESTAURANT_GUID;
+    const locations = this.locations;
+    this.tools.set('toast_get_locations', {
+      name: 'toast_get_locations',
+      description:
+        'List this restaurant group\'s locations (name and restaurantGuid). ' +
+        'Every other tool\'s restaurantGuid argument accepts either a GUID or one of these location names. ' +
+        'ALWAYS ask the user which location they mean (or query each) when they have more than one — ' +
+        'calls without restaurantGuid go to the default location only.',
+      inputSchema: z.object({}),
+      handler: async () => ({
+        locations: Object.entries(locations).map(([name, guid]) => ({
+          name,
+          restaurantGuid: guid,
+          isDefault: guid === defaultGuid,
+        })),
+      }),
+    });
+
+    console.error(`[Toast MCP] Locations configured: ${Object.keys(locations).join(', ')}`);
+  }
+
+  /** Resolve a location name to its GUID; pass GUIDs (or unknown values) through. */
+  private resolveLocation(value: string): string {
+    const hit = Object.keys(this.locations).find(
+      (name) => name.toLowerCase() === value.toLowerCase()
+    );
+    return hit ? this.locations[hit] : value;
   }
 
   private setupHandlers() {
@@ -183,8 +231,14 @@ export class ToastMCPServer {
       }
 
       try {
+        // Accept location names in restaurantGuid arguments
+        const rawArgs = { ...(request.params.arguments || {}) } as Record<string, any>;
+        if (typeof rawArgs.restaurantGuid === 'string' && rawArgs.restaurantGuid) {
+          rawArgs.restaurantGuid = this.resolveLocation(rawArgs.restaurantGuid);
+        }
+
         // Validate input
-        const validatedArgs = tool.inputSchema.parse(request.params.arguments || {});
+        const validatedArgs = tool.inputSchema.parse(rawArgs);
 
         // Execute tool
         const result = await tool.handler(validatedArgs);
