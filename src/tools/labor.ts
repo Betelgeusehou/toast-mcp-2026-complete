@@ -88,8 +88,9 @@ export function registerLaborTools(client: ToastClient) {
         endDate: z.string().optional(),
         employeeGuid: z.string().optional(),
         restaurantGuid: z.string().optional(),
+        compact: z.boolean().optional().describe('Default true: trimmed entries. false returns full Toast payloads (very large).'),
       }),
-      handler: async (args: { businessDate?: number; startDate?: string; endDate?: string; employeeGuid?: string; restaurantGuid?: string }) => {
+      handler: async (args: { businessDate?: number; startDate?: string; endDate?: string; employeeGuid?: string; restaurantGuid?: string; compact?: boolean }) => {
         const restGuid = args.restaurantGuid || client.getRestaurantGuid();
         const timeEntries = await client.get<TimeEntry[]>(
           `/labor/v1/timeEntries`,
@@ -101,7 +102,81 @@ export function registerLaborTools(client: ToastClient) {
             employeeGuid: args.employeeGuid,
           }
         );
-        return { timeEntries, count: timeEntries.length };
+        // Compact by default: full Toast time entries are enormous (a week can
+        // exceed chat-surface response limits). Pass compact: false for raw entries.
+        if (args.compact === false) {
+          return { timeEntries, count: timeEntries.length };
+        }
+        const compactEntries = timeEntries.map((te: any) => ({
+          guid: te.guid,
+          employeeGuid: te.employeeReference?.guid ?? te.employee?.guid,
+          businessDate: te.businessDate,
+          inDate: te.inDate,
+          outDate: te.outDate,
+          regularHours: te.regularHours,
+          overtimeHours: te.overtimeHours,
+          hourlyWage: te.hourlyWage,
+          declaredCashTips: te.declaredCashTips,
+          nonCashTips: te.nonCashTips,
+          autoClockedOut: te.autoClockedOut,
+          deleted: te.deleted,
+        }));
+        return { timeEntries: compactEntries, count: compactEntries.length, note: 'Compact view. Pass compact: false for full Toast payloads (large).' };
+      },
+    },
+
+    {
+      name: 'toast_get_overtime_report',
+      description: 'Per-employee overtime report for a date range: joins time entries with employee names and wages, returns hours, OT, and OT premium cost per person. Small response, safe for any client.',
+      inputSchema: z.object({
+        startDate: z.string().describe('ISO 8601 start, e.g. 2026-08-24T05:00:00.000+0000'),
+        endDate: z.string().describe('ISO 8601 end'),
+        restaurantGuid: z.string().optional(),
+      }),
+      handler: async (args: { startDate: string; endDate: string; restaurantGuid?: string }) => {
+        const restGuid = args.restaurantGuid || client.getRestaurantGuid();
+        const [timeEntries, employees] = await Promise.all([
+          client.get<TimeEntry[]>(`/labor/v1/timeEntries`, {
+            restaurantGuid: restGuid,
+            startDate: args.startDate,
+            endDate: args.endDate,
+          }),
+          client.get<any[]>(`/labor/v1/employees`, { restaurantGuid: restGuid }),
+        ]);
+        const names = new Map<string, string>();
+        for (const e of employees) {
+          const name = [e.chosenName || e.firstName, e.lastName].filter(Boolean).join(' ').trim();
+          if (e.guid) names.set(e.guid, name || e.guid);
+        }
+        const agg = new Map<string, { name: string; regularHours: number; overtimeHours: number; hourlyWage: number }>();
+        for (const te of timeEntries as any[]) {
+          if (te.deleted) continue;
+          const guid = te.employeeReference?.guid ?? te.employee?.guid ?? 'unknown';
+          const row = agg.get(guid) || { name: names.get(guid) || guid, regularHours: 0, overtimeHours: 0, hourlyWage: 0 };
+          row.regularHours += te.regularHours || 0;
+          row.overtimeHours += te.overtimeHours || 0;
+          row.hourlyWage = Math.max(row.hourlyWage, te.hourlyWage || 0);
+          agg.set(guid, row);
+        }
+        const rows = Array.from(agg.entries())
+          .map(([employeeGuid, r]) => ({
+            employeeGuid,
+            name: r.name,
+            regularHours: Math.round(r.regularHours * 100) / 100,
+            overtimeHours: Math.round(r.overtimeHours * 100) / 100,
+            hourlyWage: r.hourlyWage,
+            overtimePremiumCost: Math.round(r.overtimeHours * r.hourlyWage * 0.5 * 100) / 100,
+          }))
+          .sort((a, b) => b.overtimeHours - a.overtimeHours);
+        const withOT = rows.filter(r => r.overtimeHours > 0);
+        return {
+          startDate: args.startDate,
+          endDate: args.endDate,
+          employeesWithOvertime: withOT,
+          totalOvertimeHours: Math.round(withOT.reduce((s, r) => s + r.overtimeHours, 0) * 100) / 100,
+          totalOvertimePremiumCost: Math.round(withOT.reduce((s, r) => s + r.overtimePremiumCost, 0) * 100) / 100,
+          allEmployees: rows,
+        };
       },
     },
 
@@ -136,7 +211,7 @@ export function registerLaborTools(client: ToastClient) {
           return sum + regular + overtime;
         }, 0);
 
-        const uniqueEmployees = new Set(timeEntries.map(te => te.employee?.guid).filter(Boolean));
+        const uniqueEmployees = new Set(timeEntries.map((te: any) => te.employeeReference?.guid ?? te.employee?.guid).filter(Boolean));
 
         return {
           businessDate: args.businessDate,
