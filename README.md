@@ -21,28 +21,18 @@ A **PrimeCost** project — built and maintained by **Chris Cusack**, restaurant
 3. **A place to run the server** — Railway (easiest, ~$5/mo), or any host that runs Node 18+.
 4. **A Claude plan that supports custom connectors** (Pro/Max/Team) — or any other MCP client.
 
-## Deploy on Railway (10 minutes)
+## Deploy on Railway (5 minutes, one click)
 
-1. Fork/clone this repo → Railway → **New Project → Deploy from GitHub repo**
-2. Set the deploy **branch** to the default branch of this repo
-3. Add these variables:
+[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/deploy/toast-mcp)
 
-| Variable | Value |
-|---|---|
-| `TOAST_MCP_MODE` | `http` |
-| `TOAST_MCP_SECRET` | a long random string you generate — this is your connector password |
-| `TOAST_CLIENT_ID` | from Toast Web |
-| `TOAST_CLIENT_SECRET` | from Toast Web |
-| `TOAST_RESTAURANT_GUID` | your location's GUID |
-| `TOAST_ENVIRONMENT` | `production` |
+1. Click the button (or go to [railway.com/deploy/toast-mcp](https://railway.com/deploy/toast-mcp)) and hit **Deploy Now**
+2. Paste your three values: `TOAST_CLIENT_ID` and `TOAST_CLIENT_SECRET` from Toast Web, and `TOAST_RESTAURANT_GUID` for your location. Everything else is pre-filled, and your connector password (`TOAST_MCP_SECRET`) is generated automatically.
+3. After deploy, open the service's **Variables** tab and copy the `TOAST_MCP_SECRET` value. Save it somewhere safe. It is the only lock on your data.
+4. **Settings → Networking → Generate Domain** (port 3000), then confirm `https://<your-domain>/health` returns `{"status":"ok"}`
 
-Generate a good secret:
+If Claude is connected to your Chrome browser, you can also just ask it to do this setup for you.
 
-```bash
-node -e "console.log(require('crypto').randomUUID().replace(/-/g,'')+require('crypto').randomUUID().replace(/-/g,''))"
-```
-
-4. **Settings → Networking → Generate Domain**, then confirm `https://<your-domain>/health` returns `{"status":"ok"}`
+Prefer manual setup? Deploy this repo as a GitHub service and set the six variables yourself (`TOAST_MCP_MODE=http`, `TOAST_ENVIRONMENT=production`, plus the four above — invent your own long random `TOAST_MCP_SECRET`).
 
 ## Connect Claude
 
