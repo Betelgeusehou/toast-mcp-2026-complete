@@ -61,9 +61,6 @@ export interface Order {
   createdDevice?: Device;
   modifiedDevice?: Device;
   numberOfPeople?: number;
-  source?: string;
-  curbsidePickupInfo?: CurbsidePickupInfo;
-  deliveryInfo?: DeliveryInfo;
   requiredPrepTime?: string;
 }
 

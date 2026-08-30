@@ -1,4 +1,4 @@
-import { z } from 'zod';
+﻿import { z } from 'zod';
 import { ToastClient } from '../clients/toast.js';
 import type { Customer, Order } from '../types/index.js';
 
@@ -25,7 +25,7 @@ export function registerCustomersTools(client: ToastClient) {
         const startDate = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString(); // Last 90 days
         
         const orders = await client.getAllPages<Order>(
-          `/orders/v2/orders`,
+          `/orders/v2/ordersBulk`,
           {
             restaurantGuid: restGuid,
             startDate,
@@ -99,7 +99,7 @@ export function registerCustomersTools(client: ToastClient) {
         const startDate = new Date(Date.now() - 365 * 24 * 60 * 60 * 1000).toISOString(); // Last year
         
         const allOrders = await client.getAllPages<Order>(
-          `/orders/v2/orders`,
+          `/orders/v2/ordersBulk`,
           {
             restaurantGuid: restGuid,
             startDate,
@@ -148,7 +148,7 @@ export function registerCustomersTools(client: ToastClient) {
         const startDate = new Date(Date.now() - 365 * 24 * 60 * 60 * 1000).toISOString();
         
         const orders = await client.getAllPages<Order>(
-          `/orders/v2/orders`,
+          `/orders/v2/ordersBulk`,
           {
             restaurantGuid: restGuid,
             startDate,
@@ -196,7 +196,7 @@ export function registerCustomersTools(client: ToastClient) {
         const startDate = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString(); // Last 90 days
         
         const orders = await client.getAllPages<Order>(
-          `/orders/v2/orders`,
+          `/orders/v2/ordersBulk`,
           {
             restaurantGuid: restGuid,
             startDate,

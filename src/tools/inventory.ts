@@ -150,8 +150,8 @@ export function registerInventoryTools(client: ToastClient) {
           )
         );
 
-        const successful = results.filter(r => !('error' in r));
-        const failed = results.filter(r => 'error' in r);
+        const successful = results.filter(r => !(r && typeof r === 'object' && 'error' in r));
+        const failed = results.filter(r => r && typeof r === 'object' && 'error' in r);
 
         return {
           successCount: successful.length,

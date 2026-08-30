@@ -115,27 +115,28 @@ export function registerLaborTools(client: ToastClient) {
       handler: async (args: { businessDate: number; restaurantGuid?: string }) => {
         const restGuid = args.restaurantGuid || client.getRestaurantGuid();
         
-        // Get shifts for the day
-        const shifts = await client.get<Shift[]>(
-          `/labor/v1/shifts`,
+        // Labor actually worked comes from time entries, not scheduled shifts.
+        // The time entries endpoint accepts businessDate directly (yyyyMMdd).
+        const timeEntries = await client.get<TimeEntry[]>(
+          `/labor/v1/timeEntries`,
           {
             restaurantGuid: restGuid,
             businessDate: args.businessDate,
           }
         );
 
-        const totalHours = shifts.reduce((sum, shift) => 
-          sum + (shift.regularHoursWorked || 0) + (shift.overtimeHoursWorked || 0), 0
+        const totalHours = timeEntries.reduce((sum, te) =>
+          sum + (te.regularHours || 0) + (te.overtimeHours || 0), 0
         );
-        const regularHours = shifts.reduce((sum, shift) => sum + (shift.regularHoursWorked || 0), 0);
-        const overtimeHours = shifts.reduce((sum, shift) => sum + (shift.overtimeHoursWorked || 0), 0);
-        const totalWages = shifts.reduce((sum, shift) => {
-          const regular = (shift.regularHoursWorked || 0) * (shift.hourlyWage || 0);
-          const overtime = (shift.overtimeHoursWorked || 0) * (shift.hourlyWage || 0) * 1.5;
+        const regularHours = timeEntries.reduce((sum, te) => sum + (te.regularHours || 0), 0);
+        const overtimeHours = timeEntries.reduce((sum, te) => sum + (te.overtimeHours || 0), 0);
+        const totalWages = timeEntries.reduce((sum, te) => {
+          const regular = (te.regularHours || 0) * (te.hourlyWage || 0);
+          const overtime = (te.overtimeHours || 0) * (te.hourlyWage || 0) * 1.5;
           return sum + regular + overtime;
         }, 0);
 
-        const uniqueEmployees = new Set(shifts.map(s => s.employeeReference?.employeeGuid).filter(Boolean));
+        const uniqueEmployees = new Set(timeEntries.map(te => te.employee?.guid).filter(Boolean));
 
         return {
           businessDate: args.businessDate,
@@ -144,7 +145,7 @@ export function registerLaborTools(client: ToastClient) {
           overtimeHours,
           totalWages,
           employeeCount: uniqueEmployees.size,
-          shiftCount: shifts.length,
+          shiftCount: timeEntries.length,
         };
       },
     },

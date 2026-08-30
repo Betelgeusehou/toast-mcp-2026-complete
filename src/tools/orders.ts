@@ -1,4 +1,4 @@
-import { z } from 'zod';
+﻿import { z } from 'zod';
 import { ToastClient } from '../clients/toast.js';
 import type { Order, Check } from '../types/index.js';
 
@@ -40,7 +40,7 @@ export function registerOrdersTools(client: ToastClient) {
       handler: async (args: { businessDate?: number; startDate?: string; endDate?: string; page?: number; pageSize?: number; restaurantGuid?: string }) => {
         const restGuid = args.restaurantGuid || client.getRestaurantGuid();
         const orders = await client.getPaginated<Order>(
-          `/orders/v2/orders`,
+          `/orders/v2/ordersBulk`,
           {
             restaurantGuid: restGuid,
             businessDate: args.businessDate,
@@ -270,7 +270,7 @@ export function registerOrdersTools(client: ToastClient) {
       handler: async (args: { businessDate: number; restaurantGuid?: string }) => {
         const restGuid = args.restaurantGuid || client.getRestaurantGuid();
         const orders = await client.getAllPages<Order>(
-          `/orders/v2/orders`,
+          `/orders/v2/ordersBulk`,
           {
             restaurantGuid: restGuid,
             businessDate: args.businessDate,
@@ -293,7 +293,7 @@ export function registerOrdersTools(client: ToastClient) {
       handler: async (args: { phone?: string; email?: string; startDate?: string; endDate?: string; restaurantGuid?: string }) => {
         const restGuid = args.restaurantGuid || client.getRestaurantGuid();
         const allOrders = await client.getAllPages<Order>(
-          `/orders/v2/orders`,
+          `/orders/v2/ordersBulk`,
           {
             restaurantGuid: restGuid,
             startDate: args.startDate,
@@ -303,9 +303,9 @@ export function registerOrdersTools(client: ToastClient) {
 
         const matchingOrders = allOrders.filter(order =>
           order.checks.some(check =>
-            check.customer &&
-            (args.phone && check.customer.phone === args.phone) ||
-            (args.email && check.customer.email === args.email)
+            check.customer !== undefined &&
+            ((args.phone && check.customer.phone === args.phone) ||
+              (args.email && check.customer.email === args.email))
           )
         );
 

@@ -93,7 +93,17 @@ export class ToastClient {
         }
       );
 
-      this.authToken = response.data;
+      // Toast returns { token: { accessToken, expiresIn, ... } }, not an OAuth2-style flat object
+      const raw = response.data as any;
+      this.authToken = {
+        access_token: raw?.token?.accessToken ?? raw?.access_token,
+        token_type: raw?.token?.tokenType ?? raw?.token_type ?? 'Bearer',
+        expires_in: raw?.token?.expiresIn ?? raw?.expires_in ?? 0,
+        scope: raw?.token?.scope ?? raw?.scope ?? '',
+      };
+      if (!this.authToken.access_token) {
+        throw new Error('Toast authentication succeeded but no access token was found in the response');
+      }
       // Calculate expiration timestamp
       this.tokenExpiration = Date.now() + this.authToken.expires_in * 1000;
     } catch (error) {
@@ -138,9 +148,19 @@ export class ToastClient {
     params?: Record<string, any>,
     config?: AxiosRequestConfig
   ): Promise<T> {
+    // Toast identifies the restaurant via the Toast-Restaurant-External-ID
+    // header, not a query parameter — lift restaurantGuid out of params so
+    // per-call overrides work for multi-location credentials.
+    const { restaurantGuid, ...queryParams } = params || {};
     const response = await this.axiosInstance.get<T>(endpoint, {
-      params,
+      params: queryParams,
       ...config,
+      headers: {
+        ...config?.headers,
+        ...(restaurantGuid
+          ? { 'Toast-Restaurant-External-ID': restaurantGuid }
+          : {}),
+      },
     });
     return response.data;
   }

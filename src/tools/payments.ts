@@ -124,7 +124,7 @@ export function registerPaymentsTools(client: ToastClient) {
         // Note: In a real implementation, this would use a dedicated reporting endpoint
         // For now, we'll aggregate from orders
         const orders = await client.getAllPages(
-          `/orders/v2/orders`,
+          `/orders/v2/ordersBulk`,
           {
             restaurantGuid: restGuid,
             businessDate: args.businessDate,

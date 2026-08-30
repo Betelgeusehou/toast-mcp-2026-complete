@@ -1,4 +1,4 @@
-import { z } from 'zod';
+﻿import { z } from 'zod';
 import { ToastClient } from '../clients/toast.js';
 import type { Order, MenuItemSales } from '../types/index.js';
 
@@ -19,7 +19,7 @@ export function registerReportingTools(client: ToastClient) {
         const restGuid = args.restaurantGuid || client.getRestaurantGuid();
         
         const orders = await client.getAllPages<Order>(
-          `/orders/v2/orders`,
+          `/orders/v2/ordersBulk`,
           {
             restaurantGuid: restGuid,
             businessDate: args.businessDate,
@@ -95,7 +95,7 @@ export function registerReportingTools(client: ToastClient) {
         const restGuid = args.restaurantGuid || client.getRestaurantGuid();
         
         const orders = await client.getAllPages<Order>(
-          `/orders/v2/orders`,
+          `/orders/v2/ordersBulk`,
           {
             restaurantGuid: restGuid,
             businessDate: args.businessDate,
@@ -146,7 +146,7 @@ export function registerReportingTools(client: ToastClient) {
         const restGuid = args.restaurantGuid || client.getRestaurantGuid();
         
         const orders = await client.getAllPages<Order>(
-          `/orders/v2/orders`,
+          `/orders/v2/ordersBulk`,
           {
             restaurantGuid: restGuid,
             businessDate: args.businessDate,
@@ -209,7 +209,7 @@ export function registerReportingTools(client: ToastClient) {
         const restGuid = args.restaurantGuid || client.getRestaurantGuid();
         
         const orders = await client.getAllPages<Order>(
-          `/orders/v2/orders`,
+          `/orders/v2/ordersBulk`,
           {
             restaurantGuid: restGuid,
             businessDate: args.businessDate,
@@ -250,7 +250,7 @@ export function registerReportingTools(client: ToastClient) {
         const restGuid = args.restaurantGuid || client.getRestaurantGuid();
         
         const orders = await client.getAllPages<Order>(
-          `/orders/v2/orders`,
+          `/orders/v2/ordersBulk`,
           {
             restaurantGuid: restGuid,
             businessDate: args.businessDate,
@@ -298,7 +298,7 @@ export function registerReportingTools(client: ToastClient) {
         const restGuid = args.restaurantGuid || client.getRestaurantGuid();
         
         const orders = await client.getAllPages<Order>(
-          `/orders/v2/orders`,
+          `/orders/v2/ordersBulk`,
           {
             restaurantGuid: restGuid,
             businessDate: args.businessDate,
