@@ -36,8 +36,9 @@ export class ToastClient {
         if (this.authToken) {
           config.headers.Authorization = `Bearer ${this.authToken.access_token}`;
         }
-        // Add Toast-Restaurant-External-ID header if available
-        if (this.config.restaurantGuid) {
+        // Add Toast-Restaurant-External-ID header if available — but never
+        // overwrite a per-call restaurantGuid override already set on the request.
+        if (this.config.restaurantGuid && !config.headers['Toast-Restaurant-External-ID']) {
           config.headers['Toast-Restaurant-External-ID'] = this.config.restaurantGuid;
         }
         return config;
