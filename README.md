@@ -1,166 +1,70 @@
-# Toast MCP Server
+# Toast MCP — talk to your restaurant's POS
 
-Complete Model Context Protocol (MCP) server for Toast restaurant POS and management platform integration.
+Connect Claude (or any MCP client) to your Toast POS. Ask your restaurant questions in plain English — from your laptop, your phone, anywhere:
 
-## 🚀 Features
+> *"What were my net sales last night?"*
+> *"Who's clocked in right now?"*
+> *"Compare this Saturday to last Saturday, hour by hour."*
 
-### 50+ Tools Across 10 Categories
+**55 read-only tools** covering orders, sales, labor, employees, time entries, menus, inventory, customers, and cash — live-tested against real production restaurants.
 
-1. **Orders (12 tools)** - Complete order lifecycle management
-   - Get, list, create, void orders
-   - Search by customer, business date
-   - Add/void selections, apply discounts
-   - Update promised times, track status
+A **PrimeCost** project — built and maintained by **Chris Cusack**, restaurant operator (Betelgeuse Betelgeuse, Houston) and writer of [All Day](https://alldayhou.com), a newsletter about running restaurants with AI. First in a series: working MCP connections for every major restaurant POS.
 
-2. **Menus (11 tools)** - Full menu and item management
-   - List/get menus, groups, items
-   - Search items, update pricing
-   - 86 management (out of stock)
-   - Bulk operations
+> 🎥 **Not a developer?** There's a full step-by-step walkthrough — with screenshots for every Toast screen, the exact Railway clicks, and the phone demo — at **[alldayhou.com](https://alldayhou.com)**. This README is the condensed version for people comfortable with a terminal.
 
-3. **Employees (9 tools)** - Staff management
-   - Employee CRUD operations
-   - Job position management
-   - Search and filtering
-   - Time entry tracking
+---
 
-4. **Labor (6 tools)** - Workforce analytics
-   - Shift management
-   - Active shift tracking
-   - Labor reports and summaries
-   - Employee hours calculation
+## What you need
 
-5. **Restaurant (9 tools)** - Configuration and settings
-   - Restaurant info and access
-   - Tables and service areas
-   - Dining options, revenue centers
-   - Online ordering and delivery settings
+1. **Toast standard API access.** This is the slow part. Toast doesn't self-serve API keys — you request "standard API access" through your Toast rep or a Customer Care ticket ("I want standard API access for my own restaurant group, for internal reporting"). Approval typically takes days to weeks. When approved, you get a **client ID** and **client secret** in Toast Web (search "API access" → Manage credentials). Save the secret immediately — Toast shows it once.
+2. **Your restaurant GUID.** Toast Web sets a cookie named `lastRestaurantGuid` when you're logged in, or check your API access welcome materials. (The walkthrough covers three ways to find it.)
+3. **A place to run the server** — Railway (easiest, ~$5/mo), or any host that runs Node 18+.
+4. **A Claude plan that supports custom connectors** (Pro/Max/Team) — or any other MCP client.
 
-6. **Payments (6 tools)** - Transaction management
-   - Payment CRUD operations
-   - Refunds and voids
-   - Payment summaries by type
+## Deploy on Railway (10 minutes)
 
-7. **Inventory (5 tools)** - Stock management
-   - Stock level tracking
-   - Low stock alerts
-   - Quantity updates
-   - Bulk operations
+1. Fork/clone this repo → Railway → **New Project → Deploy from GitHub repo**
+2. Set the deploy **branch** to the default branch of this repo
+3. Add these variables:
 
-8. **Customers (4 tools)** - Customer relationship management
-   - Customer search and profiles
-   - Order history
-   - Loyalty program integration
-   - Top customers analysis
+| Variable | Value |
+|---|---|
+| `TOAST_MCP_MODE` | `http` |
+| `TOAST_MCP_SECRET` | a long random string you generate — this is your connector password |
+| `TOAST_CLIENT_ID` | from Toast Web |
+| `TOAST_CLIENT_SECRET` | from Toast Web |
+| `TOAST_RESTAURANT_GUID` | your location's GUID |
+| `TOAST_ENVIRONMENT` | `production` |
 
-9. **Reporting (6 tools)** - Analytics and insights
-   - Sales summaries
-   - Hourly breakdown
-   - Item sales reports
-   - Payment type, discount, and void reports
-
-10. **Cash (8 tools)** - Cash management
-    - Cash drawer tracking
-    - Paid in/out entries
-    - Deposit recording
-    - Drawer summaries
-
-### 18 React Apps (Client-Side UI)
-
-**Orders & Service:**
-- Order Dashboard - Real-time monitoring
-- Order Detail - Deep order inspection
-- Order Grid - Multi-order management
-- Table Map - Visual floor plan
-
-**Menu Management:**
-- Menu Manager - Full menu editing
-- Menu Item Detail - Item configuration
-- Menu Performance - Sales analytics
-
-**Staff & Labor:**
-- Employee Dashboard - Staff directory
-- Employee Schedule - Shift planning
-- Labor Dashboard - Cost tracking
-- Tip Summary - Earnings distribution
-
-**Payments & Finance:**
-- Payment History - Transaction log
-- Sales Dashboard - Comprehensive metrics
-- Revenue by Hour - Hourly analysis
-
-**Inventory & Operations:**
-- Inventory Tracker - Stock management
-- Restaurant Overview - System config
-
-**Customer Management:**
-- Customer Detail - Profiles and history
-- Customer Loyalty - Rewards tracking
-
-## 📦 Installation
+Generate a good secret:
 
 ```bash
-npm install @busybee3333/toast-mcp-server
+node -e "console.log(require('crypto').randomUUID().replace(/-/g,'')+require('crypto').randomUUID().replace(/-/g,''))"
 ```
 
-Or clone and build locally:
+4. **Settings → Networking → Generate Domain**, then confirm `https://<your-domain>/health` returns `{"status":"ok"}`
 
-```bash
-git clone https://github.com/BusyBee3333/mcpengine.git
-cd mcpengine/servers/toast
-npm install
-npm run build
-```
+## Connect Claude
 
-## 🔧 Configuration
+claude.ai → **Settings → Connectors → Add custom connector**:
 
-Set required environment variables:
+- Name: `Toast`
+- URL: `https://<your-domain>/<your-secret>/mcp`
 
-```bash
-export TOAST_CLIENT_ID="your_client_id"
-export TOAST_CLIENT_SECRET="your_client_secret"
-export TOAST_RESTAURANT_GUID="your_restaurant_guid"  # Optional
-export TOAST_ENVIRONMENT="production"  # or "sandbox"
-```
+That's it. The connector now works in Claude chat, mobile, Cowork, and Claude Code.
 
-## 🎯 Usage
-
-### Stdio Mode (MCP Integration)
-
-```bash
-toast-mcp-server
-```
-
-Or via npx:
-
-```bash
-npx @busybee3333/toast-mcp-server
-```
-
-### HTTP Mode (Web UI + API)
-
-```bash
-TOAST_MCP_MODE=http TOAST_MCP_PORT=3000 toast-mcp-server
-```
-
-Access UI at: `http://localhost:3000/apps/`
-
-### Claude Desktop Integration
-
-Add to your Claude Desktop config (`~/Library/Application Support/Claude/claude_desktop_config.json`):
+## Run locally instead (Claude Code / Claude Desktop)
 
 ```json
 {
   "mcpServers": {
     "toast": {
-      "command": "npx",
-      "args": [
-        "@busybee3333/toast-mcp-server"
-      ],
+      "command": "node",
+      "args": ["/path/to/repo/dist/main.js"],
       "env": {
-        "TOAST_CLIENT_ID": "your_client_id",
-        "TOAST_CLIENT_SECRET": "your_client_secret",
-        "TOAST_RESTAURANT_GUID": "your_restaurant_guid",
+        "TOAST_CLIENT_ID": "...",
+        "TOAST_CLIENT_SECRET": "...",
+        "TOAST_RESTAURANT_GUID": "...",
         "TOAST_ENVIRONMENT": "production"
       }
     }
@@ -168,150 +72,22 @@ Add to your Claude Desktop config (`~/Library/Application Support/Claude/claude_
 }
 ```
 
-## 🛠️ Tool Examples
+Build first with `npm install && npm run build`. Stdio mode needs no secret.
 
-### Get Order
-```json
-{
-  "name": "toast_get_order",
-  "arguments": {
-    "orderGuid": "550e8400-e29b-41d4-a716-446655440000"
-  }
-}
-```
+## Security posture (read this)
 
-### List Orders for Business Date
-```json
-{
-  "name": "toast_list_orders",
-  "arguments": {
-    "businessDate": 20240215
-  }
-}
-```
+- **Read-only by default.** The 21 tools that could modify a POS (create orders, refund payments, void checks, edit employees, adjust stock) are **disabled** unless you set `TOAST_ENABLE_WRITE_TOOLS=true`. They are untested against live Toast. Leave them off.
+- **Your secret is the only lock on your sales data.** Treat the connector URL like a password. Never screenshot it, never post it. If it leaks, rotate `TOAST_MCP_SECRET` in Railway (takes 2 minutes) and update your connector URL.
+- **Your credentials never leave your infrastructure.** This server talks to exactly one external host: Toast's API (`ws-api.toasttab.com`). No telemetry, no analytics, no third parties. Read the source — it's small.
+- Multi-location groups: deploy one service per location (or omit `TOAST_RESTAURANT_GUID` and pass `restaurantGuid` per call where tools support it).
 
-### Create Order
-```json
-{
-  "name": "toast_create_order",
-  "arguments": {
-    "source": "ONLINE",
-    "selections": [
-      {
-        "itemGuid": "item-123",
-        "quantity": 2
-      }
-    ],
-    "customer": {
-      "firstName": "John",
-      "lastName": "Doe",
-      "phone": "+15551234567"
-    }
-  }
-}
-```
+## Provenance
 
-### Mark Item 86'd
-```json
-{
-  "name": "toast_set_item_86",
-  "arguments": {
-    "itemGuid": "item-456",
-    "outOfStock": true
-  }
-}
-```
+This began as [BusyBee3333/toast-mcp-2026-complete](https://github.com/BusyBee3333/toast-mcp-2026-complete) (MIT). The original had never been run against live Toast and could not work (see [issue #1](https://github.com/BusyBee3333/toast-mcp-2026-complete/issues/1)); this version fixes authentication, endpoints, and the labor report, adds the remote HTTP transport with secret auth, disables write tools by default, and is verified daily against production restaurants. MIT license preserved.
 
-### Get Sales Summary
-```json
-{
-  "name": "toast_get_sales_summary",
-  "arguments": {
-    "businessDate": 20240215
-  }
-}
-```
+## Who made this
 
-## 🏗️ Architecture
-
-```
-toast/
-├── src/
-│   ├── clients/
-│   │   └── toast.ts          # Toast API client with auth
-│   ├── tools/
-│   │   ├── orders.ts         # 12 order tools
-│   │   ├── menus.ts          # 11 menu tools
-│   │   ├── employees.ts      # 9 employee tools
-│   │   ├── labor.ts          # 6 labor tools
-│   │   ├── restaurant.ts     # 9 restaurant tools
-│   │   ├── payments.ts       # 6 payment tools
-│   │   ├── inventory.ts      # 5 inventory tools
-│   │   ├── customers.ts      # 4 customer tools
-│   │   ├── reporting.ts      # 6 reporting tools
-│   │   └── cash.ts           # 8 cash tools
-│   ├── types/
-│   │   └── index.ts          # Comprehensive TypeScript types
-│   ├── ui/
-│   │   └── react-app/        # 18 React apps (client-side)
-│   ├── server.ts             # MCP server implementation
-│   └── main.ts               # Entry point (stdio + HTTP)
-├── package.json
-├── tsconfig.json
-└── README.md
-```
-
-## 📊 API Coverage
-
-This server implements comprehensive coverage of the Toast API:
-
-- ✅ Orders API v2 (full CRUD)
-- ✅ Menus API v2 (read + update)
-- ✅ Labor API v1 (employees, shifts, time entries)
-- ✅ Configuration API v1 (restaurant settings)
-- ✅ Stock API v1 (inventory management)
-- ✅ Cash Management API v1
-- ✅ Partners API v1 (restaurant access)
-
-## 🔐 Authentication
-
-Uses OAuth 2.0 client credentials flow with automatic token refresh. Tokens are managed internally and refreshed 5 minutes before expiration.
-
-## 🎨 UI Theme
-
-All 18 apps use a consistent dark theme optimized for restaurant environments:
-- Background: `#0f0f0f`
-- Cards: `#1a1a1a`
-- Accent: `#00bfa5`
-- Text: `#e0e0e0`
-
-## 🤝 Contributing
-
-Contributions welcome! Please see the main [mcpengine repo](https://github.com/BusyBee3333/mcpengine) for contribution guidelines.
-
-## 📄 License
-
-MIT © BusyBee3333
-
-## 🔗 Links
-
-- [Toast API Documentation](https://doc.toasttab.com/)
-- [Model Context Protocol](https://modelcontextprotocol.io/)
-- [MCP Engine Repository](https://github.com/BusyBee3333/mcpengine)
-
-## 🐛 Known Issues
-
-- HTTP mode tool execution not yet implemented (use stdio mode for MCP)
-- UI apps currently use client-side demo data (connect to Toast API for live data)
-
-## 🗓️ Roadmap
-
-- [ ] WebSocket support for real-time order updates
-- [ ] Full HTTP mode implementation
-- [ ] Additional reporting endpoints
-- [ ] Kitchen display system (KDS) integration
-- [ ] Multi-location support
+**Chris Cusack** — I own [Betelgeuse Betelgeuse](https://betelgeusehou.com) (two locations, Houston) and write about restaurants + AI at **[All Day](https://alldayhou.com)**. If this saved you time, that's where the rest of the playbook lives: labor auditing with AI, review management, the full stack. If you want it set up for you, or want this for a POS that doesn't have one yet — reach out.
 
 ---
-
-**Built with ❤️ for the restaurant industry**
+*Not affiliated with or endorsed by Toast, Inc. Toast is a trademark of its owner. Use your own credentials; you are responsible for your own API terms compliance.*
