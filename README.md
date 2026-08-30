@@ -8,7 +8,7 @@ Connect Claude (or any MCP client) to your Toast POS. Ask your restaurant questi
 
 **55 read-only tools** covering orders, sales, labor, employees, time entries, menus, inventory, customers, and cash — live-tested against real production restaurants.
 
-A **PrimeCost** project — built and maintained by **Chris Cusack**, restaurant operator (Betelgeuse Betelgeuse, Houston) and writer of [All Day](https://alldayhou.com), a newsletter about running restaurants with AI. First in a series: working MCP connections for every major restaurant POS.
+A **PrimeCost** project — built and maintained by **Chris Cusack**, restaurant owner and writer of [All Day](https://chriscusack.net), a newsletter about running restaurants with AI. First in a series: working MCP connections for every major restaurant POS.
 
 > 🎥 **Not a developer?** There's a full step-by-step walkthrough — with screenshots for every Toast screen, the exact Railway clicks, and the phone demo — at **[alldayhou.com](https://alldayhou.com)**. This README is the condensed version for people comfortable with a terminal.
 
