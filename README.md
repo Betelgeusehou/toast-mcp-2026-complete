@@ -10,7 +10,7 @@ Connect Claude (or any MCP client) to your Toast POS. Ask your restaurant questi
 
 A **PrimeCost** project — built and maintained by **Chris Cusack**, restaurant owner and writer of [All Day](https://chriscusack.net), a newsletter about running restaurants with AI. First in a series: working MCP connections for every major restaurant POS.
 
-> 🎥 **Not a developer?** There's a full step-by-step walkthrough — with screenshots for every Toast screen, the exact Railway clicks, and the phone demo — at **[alldayhou.com](https://alldayhou.com)**. This README is the condensed version for people comfortable with a terminal.
+> 🎥 **Not a developer?** There's a full step-by-step walkthrough — with screenshots for every Toast screen, the exact Railway clicks, and the phone demo — at **[chriscusack.net](https://chriscusack.net)**. This README is the condensed version for people comfortable with a terminal.
 
 ---
 
@@ -87,7 +87,7 @@ This began as [BusyBee3333/toast-mcp-2026-complete](https://github.com/BusyBee33
 
 ## Who made this
 
-**Chris Cusack** — I own [Betelgeuse Betelgeuse](https://betelgeusehou.com) (two locations, Houston) and write about restaurants + AI at **[All Day](https://alldayhou.com)**. If this saved you time, that's where the rest of the playbook lives: labor auditing with AI, review management, the full stack. If you want it set up for you, or want this for a POS that doesn't have one yet — reach out.
+**Chris Cusack** — restaurant owner and operator (Houston, two locations) writing about restaurants + AI at **[chriscusack.net](https://chriscusack.net)**. If this saved you time, that's where the rest of the playbook lives: labor auditing with AI, review management, the full stack. If you want it set up for you, or want this for a POS that doesn't have one yet — reach out.
 
 ---
 *Not affiliated with or endorsed by Toast, Inc. Toast is a trademark of its owner. Use your own credentials; you are responsible for your own API terms compliance.*
