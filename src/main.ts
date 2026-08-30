@@ -19,7 +19,7 @@ interface Config {
 function loadConfig(): Config {
   const config: Config = {
     mode: (process.env.TOAST_MCP_MODE as 'stdio' | 'http') || 'stdio',
-    port: process.env.TOAST_MCP_PORT ? parseInt(process.env.TOAST_MCP_PORT) : 3000,
+    port: parseInt(process.env.TOAST_MCP_PORT || process.env.PORT || '3000'),
   };
 
   // Load from environment variables
@@ -64,47 +64,95 @@ async function main() {
 
       await server.run();
     } else if (config.mode === 'http') {
-      // HTTP mode - for web UI and API access
+      // HTTP mode - remote MCP server (streamable HTTP transport, stateless)
       const express = await import('express');
-      const cors = await import('cors');
+      const { StreamableHTTPServerTransport } = await import(
+        '@modelcontextprotocol/sdk/server/streamableHttp.js'
+      );
       const app = express.default();
+      app.use(express.json({ limit: '4mb' }));
 
-      app.use(cors.default());
-      app.use(express.json());
+      // Auth: requests must carry the shared secret, either as a URL path
+      // prefix (/<secret>/mcp — for clients that cannot send custom headers)
+      // or as an Authorization: Bearer header on /mcp.
+      const secret = process.env.TOAST_MCP_SECRET;
+      if (!secret || secret.length < 16) {
+        console.error(
+          'Error: TOAST_MCP_SECRET (min 16 chars) is required in http mode. ' +
+            'Generate one with: node -e "console.log(crypto.randomUUID().replaceAll(\'-\',\'\'))"'
+        );
+        process.exit(1);
+      }
 
-      // Serve static UI files
-      app.use('/apps', express.static('dist/ui'));
+      // One shared Toast client so the API auth token is fetched once, not per request.
+      const sharedClient = new ToastMCPServer({
+        clientId: config.clientId!,
+        clientSecret: config.clientSecret!,
+        restaurantGuid: config.restaurantGuid,
+        environment: config.environment,
+      }).getClient();
 
-      // Health check
-      app.get('/health', (req, res) => {
-        res.json({ status: 'ok', service: 'toast-mcp-server', version: '1.0.0' });
-      });
-
-      // API endpoint for tool execution
-      app.post('/api/tools/:toolName', async (req, res) => {
+      const handleMcp = async (req: any, res: any) => {
         try {
+          // Stateless: fresh server + transport per request, shared Toast client.
           const server = new ToastMCPServer({
             clientId: config.clientId!,
             clientSecret: config.clientSecret!,
             restaurantGuid: config.restaurantGuid,
             environment: config.environment,
+            client: sharedClient,
           });
-
-          // This would need to be refactored to support HTTP-based tool calls
-          // For now, returning placeholder
-          res.json({
-            error: 'HTTP tool execution not yet implemented',
-            message: 'Use stdio mode for MCP integration',
+          const transport = new StreamableHTTPServerTransport({
+            sessionIdGenerator: undefined,
           });
+          res.on('close', () => {
+            transport.close();
+            server.close();
+          });
+          await server.connect(transport);
+          await transport.handleRequest(req, res, req.body);
         } catch (error: any) {
-          res.status(500).json({ error: error.message });
+          console.error('[Toast MCP] Request error:', error?.message || error);
+          if (!res.headersSent) {
+            res.status(500).json({
+              jsonrpc: '2.0',
+              error: { code: -32603, message: 'Internal server error' },
+              id: null,
+            });
+          }
         }
+      };
+
+      const bearerOk = (req: any) =>
+        req.headers.authorization === `Bearer ${secret}`;
+
+      app.post(`/${secret}/mcp`, handleMcp);
+      app.post('/mcp', (req, res) => {
+        if (!bearerOk(req)) {
+          res.status(401).json({
+            jsonrpc: '2.0',
+            error: { code: -32001, message: 'Unauthorized' },
+            id: null,
+          });
+          return;
+        }
+        void handleMcp(req, res);
+      });
+      // Stateless transport: no server-initiated streams or sessions.
+      const reject = (_req: any, res: any) =>
+        res.status(405).set('Allow', 'POST').send('Method Not Allowed');
+      app.get(['/mcp', `/${secret}/mcp`], reject);
+      app.delete(['/mcp', `/${secret}/mcp`], reject);
+
+      // Health check (no secret required, reveals nothing sensitive)
+      app.get('/health', (_req, res) => {
+        res.json({ status: 'ok', service: 'toast-mcp-server', version: '1.0.0' });
       });
 
       const port = config.port || 3000;
       app.listen(port, () => {
-        console.error(`[Toast MCP] HTTP server listening on port ${port}`);
-        console.error(`[Toast MCP] UI available at http://localhost:${port}/apps/`);
+        console.error(`[Toast MCP] Remote MCP server listening on port ${port}`);
+        console.error(`[Toast MCP] Endpoint: /<secret>/mcp or /mcp with Authorization: Bearer <secret>`);
       });
     }
   } catch (error) {

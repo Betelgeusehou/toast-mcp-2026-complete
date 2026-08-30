@@ -27,7 +27,37 @@ interface ToastServerConfig {
   clientSecret: string;
   restaurantGuid?: string;
   environment?: 'production' | 'sandbox';
+  /** Reuse an existing ToastClient (shares the cached auth token across server instances). */
+  client?: ToastClient;
 }
+
+/**
+ * Tools that mutate the POS. These are untested against live Toast and are
+ * disabled unless TOAST_ENABLE_WRITE_TOOLS=true is set explicitly.
+ */
+const WRITE_TOOLS = new Set([
+  'toast_create_order',
+  'toast_void_order',
+  'toast_add_selections',
+  'toast_void_selection',
+  'toast_apply_discount',
+  'toast_update_order_promised_time',
+  'toast_update_item_price',
+  'toast_set_item_86',
+  'toast_bulk_86_items',
+  'toast_create_employee',
+  'toast_update_employee',
+  'toast_disable_employee',
+  'toast_add_payment',
+  'toast_refund_payment',
+  'toast_void_payment',
+  'toast_update_stock_quantity',
+  'toast_set_infinite_quantity',
+  'toast_bulk_update_stock',
+  'toast_create_cash_entry',
+  'toast_void_cash_entry',
+  'toast_create_cash_deposit',
+]);
 
 export class ToastMCPServer {
   private server: Server;
@@ -47,8 +77,8 @@ export class ToastMCPServer {
       }
     );
 
-    // Initialize Toast client
-    this.client = new ToastClient({
+    // Initialize (or reuse) Toast client
+    this.client = config.client || new ToastClient({
       apiKey: config.apiKey || '',
       clientId: config.clientId,
       clientSecret: config.clientSecret,
@@ -88,13 +118,19 @@ export class ToastMCPServer {
       registerCashTools(this.client),
     ];
 
+    const enableWrites = process.env.TOAST_ENABLE_WRITE_TOOLS === 'true';
+    let skipped = 0;
     for (const tools of toolModules) {
       for (const tool of tools) {
+        if (!enableWrites && WRITE_TOOLS.has(tool.name)) {
+          skipped++;
+          continue;
+        }
         this.tools.set(tool.name, tool);
       }
     }
 
-    console.error(`[Toast MCP] Registered ${this.tools.size} tools`);
+    console.error(`[Toast MCP] Registered ${this.tools.size} tools${skipped ? ` (${skipped} write tools disabled; set TOAST_ENABLE_WRITE_TOOLS=true to enable)` : ''}`);
   }
 
   private setupHandlers() {
@@ -174,6 +210,19 @@ export class ToastMCPServer {
     const transport = new StdioServerTransport();
     await this.server.connect(transport);
     console.error('[Toast MCP] Server running on stdio');
+  }
+
+  /** Connect this server to an arbitrary MCP transport (e.g. streamable HTTP). */
+  async connect(transport: any) {
+    await this.server.connect(transport);
+  }
+
+  async close() {
+    await this.server.close();
+  }
+
+  getClient(): ToastClient {
+    return this.client;
   }
 }
 
