@@ -237,8 +237,42 @@ export class ToastMCPServer {
           rawArgs.restaurantGuid = this.resolveLocation(rawArgs.restaurantGuid);
         }
 
+        // Write safety: three locks. Even with TOAST_ENABLE_WRITE_TOOLS=true
+        // (lock 1, registration), every write call must carry confirm_write:true
+        // (lock 2), and executes only when TOAST_DRY_RUN=false (lock 3 -
+        // dry-run is the default and returns the validated payload untouched).
+        const isWrite = WRITE_TOOLS.has(request.params.name);
+        const confirmed = rawArgs.confirm_write === true;
+        delete rawArgs.confirm_write;
+
+        if (isWrite && !confirmed) {
+          throw new Error(
+            `${request.params.name} modifies the POS. Re-call it with confirm_write: true to proceed.`
+          );
+        }
+
         // Validate input
         const validatedArgs = tool.inputSchema.parse(rawArgs);
+
+        if (isWrite && process.env.TOAST_DRY_RUN !== 'false') {
+          return {
+            content: [
+              {
+                type: 'text',
+                text: JSON.stringify(
+                  {
+                    dryRun: true,
+                    tool: request.params.name,
+                    validatedPayload: validatedArgs,
+                    note: 'No API call was made. Payload validated successfully. Set TOAST_DRY_RUN=false on the server to execute real writes.',
+                  },
+                  null,
+                  2
+                ),
+              },
+            ],
+          };
+        }
 
         // Execute tool
         const result = await tool.handler(validatedArgs);
