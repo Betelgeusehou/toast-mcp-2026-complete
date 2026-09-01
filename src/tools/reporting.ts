@@ -164,18 +164,27 @@ export function registerReportingTools(client: ToastClient) {
             check.selections.forEach(selection => {
               if (selection.voided) return;
 
-              const existing = itemSales.get(selection.itemGuid);
+              // Group on the menu item reference guid (selections carry the item
+              // as a reference object, not a flat itemGuid), falling back to the
+              // display name so unmapped items still bucket by name.
+              const sel = selection as any;
+              const key: string = sel.item?.guid || selection.displayName || 'unknown';
+              // preDiscountPrice is the true gross; price is already net of discounts.
+              const gross: number = sel.preDiscountPrice ?? selection.price ?? 0;
+              const net: number = selection.price ?? gross;
+
+              const existing = itemSales.get(key);
               if (existing) {
                 existing.quantity += selection.quantity;
-                existing.grossSales += selection.price;
-                existing.netSales += selection.price - (selection.appliedDiscounts?.reduce((sum, d) => sum + d.discountAmount, 0) || 0);
+                existing.grossSales += gross;
+                existing.netSales += net;
               } else {
-                itemSales.set(selection.itemGuid, {
-                  itemGuid: selection.itemGuid,
-                  itemName: selection.displayName,
+                itemSales.set(key, {
+                  itemGuid: sel.item?.guid || '',
+                  itemName: selection.displayName || 'Unknown item',
                   quantity: selection.quantity,
-                  grossSales: selection.price,
-                  netSales: selection.price - (selection.appliedDiscounts?.reduce((sum, d) => sum + d.discountAmount, 0) || 0),
+                  grossSales: gross,
+                  netSales: net,
                 });
               }
             });
@@ -259,15 +268,26 @@ export function registerReportingTools(client: ToastClient) {
 
         const discounts: Record<string, { name: string; amount: number; count: number }> = {};
 
+        const record = (discount: any) => {
+          // Applied discounts reference the discount config as an object;
+          // fall back to name so nothing lands under the literal "undefined".
+          const key: string = discount?.discount?.guid || discount?.discountGuid || discount?.name || 'unknown';
+          if (!discounts[key]) {
+            discounts[key] = { name: discount?.name || 'Unknown discount', amount: 0, count: 0 };
+          }
+          discounts[key].amount += discount?.discountAmount || 0;
+          discounts[key].count++;
+        };
+
         orders.forEach(order => {
           order.checks.forEach(check => {
-            check.appliedDiscounts?.forEach(discount => {
-              const key = discount.discountGuid;
-              if (!discounts[key]) {
-                discounts[key] = { name: discount.name, amount: 0, count: 0 };
+            check.appliedDiscounts?.forEach(record);
+            // Item-level comps (loyalty rewards, single-item discounts) live on
+            // the selection, not the check. Count both.
+            check.selections?.forEach(selection => {
+              if (!(selection as any).voided) {
+                (selection as any).appliedDiscounts?.forEach(record);
               }
-              discounts[key].amount += discount.discountAmount;
-              discounts[key].count++;
             });
           });
         });

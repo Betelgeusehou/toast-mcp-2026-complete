@@ -193,17 +193,24 @@ export class ToastMCPServer {
                 type: 'object',
                 properties: Object.entries(tool.inputSchema.shape).reduce(
                   (acc, [key, value]: [string, any]) => {
+                    // Unwrap ZodOptional/ZodDefault/ZodNullable so the advertised
+                    // type matches what validation actually expects. Without this,
+                    // every optional number was advertised as a string and then
+                    // rejected with "Expected number, received string".
+                    let inner: any = value;
+                    while (inner?._def?.innerType) inner = inner._def.innerType;
+                    const t = inner?._def?.typeName;
                     acc[key] = {
-                      type: value._def?.typeName === 'ZodString' ? 'string' :
-                            value._def?.typeName === 'ZodNumber' ? 'number' :
-                            value._def?.typeName === 'ZodBoolean' ? 'boolean' :
-                            value._def?.typeName === 'ZodArray' ? 'array' :
-                            value._def?.typeName === 'ZodObject' ? 'object' :
-                            value._def?.typeName === 'ZodEnum' ? 'string' :
+                      type: t === 'ZodString' ? 'string' :
+                            t === 'ZodNumber' ? 'number' :
+                            t === 'ZodBoolean' ? 'boolean' :
+                            t === 'ZodArray' ? 'array' :
+                            t === 'ZodObject' ? 'object' :
+                            t === 'ZodEnum' ? 'string' :
                             'string',
-                      description: value.description || '',
-                      ...(value._def?.typeName === 'ZodEnum' && {
-                        enum: value._def.values,
+                      description: value.description || inner?.description || '',
+                      ...(t === 'ZodEnum' && {
+                        enum: inner._def.values,
                       }),
                       ...(value.isOptional() && {
                         optional: true,
@@ -251,8 +258,28 @@ export class ToastMCPServer {
           );
         }
 
-        // Validate input
-        const validatedArgs = tool.inputSchema.parse(rawArgs);
+        // Validate input. If a client sends numeric strings (older cached
+        // schemas advertised numbers as strings), coerce the flagged paths
+        // once and retry rather than failing.
+        let validatedArgs: any;
+        const first = tool.inputSchema.safeParse(rawArgs);
+        if (first.success) {
+          validatedArgs = first.data;
+        } else {
+          let coerced = false;
+          for (const issue of first.error.issues) {
+            if (issue.code === 'invalid_type' && issue.expected === 'number' && issue.received === 'string') {
+              const k = issue.path[0] as string;
+              const n = Number(rawArgs[k]);
+              if (rawArgs[k] !== '' && !Number.isNaN(n)) {
+                rawArgs[k] = n;
+                coerced = true;
+              }
+            }
+          }
+          if (!coerced) throw first.error;
+          validatedArgs = tool.inputSchema.parse(rawArgs);
+        }
 
         if (isWrite && process.env.TOAST_DRY_RUN !== 'false') {
           return {
