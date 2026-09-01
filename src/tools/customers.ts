@@ -22,7 +22,7 @@ export function registerCustomersTools(client: ToastClient) {
         
         // Get recent orders to find customers
         const endDate = new Date().toISOString();
-        const startDate = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString(); // Last 90 days
+        const startDate = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString(); // Last 30 days
         
         const orders = await client.getAllPages<Order>(
           `/orders/v2/ordersBulk`,
@@ -96,7 +96,7 @@ export function registerCustomersTools(client: ToastClient) {
         }
 
         const endDate = new Date().toISOString();
-        const startDate = new Date(Date.now() - 365 * 24 * 60 * 60 * 1000).toISOString(); // Last year
+        const startDate = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString(); // Last 90 days
         
         const allOrders = await client.getAllPages<Order>(
           `/orders/v2/ordersBulk`,
@@ -145,7 +145,7 @@ export function registerCustomersTools(client: ToastClient) {
         
         // Search for orders with this loyalty identifier
         const endDate = new Date().toISOString();
-        const startDate = new Date(Date.now() - 365 * 24 * 60 * 60 * 1000).toISOString();
+        const startDate = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
         
         const orders = await client.getAllPages<Order>(
           `/orders/v2/ordersBulk`,

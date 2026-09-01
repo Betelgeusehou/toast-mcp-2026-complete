@@ -61,6 +61,17 @@ export function registerReportingTools(client: ToastClient) {
             check.appliedDiscounts?.forEach(discount => {
               discountAmount += discount.discountAmount || 0;
             });
+            // Item-level comps (loyalty rewards, single-item discounts) live on
+            // the selection. check.amount is already net of them, so count them
+            // into discounts AND back into gross, keeping gross - discounts = net.
+            check.selections?.forEach(selection => {
+              if ((selection as any).voided) return;
+              (selection as any).appliedDiscounts?.forEach((d: any) => {
+                const amt = d?.discountAmount || 0;
+                discountAmount += amt;
+                grossSales += amt;
+              });
+            });
           });
         });
 

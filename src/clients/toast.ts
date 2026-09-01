@@ -241,23 +241,29 @@ export class ToastClient {
     params?: PaginationParams & Record<string, any>
   ): Promise<T[]> {
     const allResults: T[] = [];
-    let page = 1;
     const pageSize = params?.pageSize || 100;
+    // Safety cap: never walk more than 60 pages (6,000 records) in one call.
+    // Prevents unbounded scans from hanging clients; narrow the date range
+    // for larger datasets.
+    const maxPages = 60;
+    // Fetch pages in small concurrent batches - order-scanning tools walk
+    // dozens of pages, and serial round-trips made them unusably slow.
+    const batchSize = 4;
 
-    while (true) {
-      const result = await this.getPaginated<T>(endpoint, {
-        ...params,
-        page,
-        pageSize,
-      });
-
-      allResults.push(...result.data);
-
-      if (!result.hasMore) {
-        break;
+    let page = 1;
+    while (page <= maxPages) {
+      const batch = Array.from(
+        { length: Math.min(batchSize, maxPages - page + 1) },
+        (_, i) => this.getPaginated<T>(endpoint, { ...params, page: page + i, pageSize })
+      );
+      const settled = await Promise.all(batch);
+      let done = false;
+      for (const result of settled) {
+        allResults.push(...result.data);
+        if (!result.hasMore) done = true;
       }
-
-      page++;
+      if (done) break;
+      page += batch.length;
     }
 
     return allResults;
