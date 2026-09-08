@@ -119,12 +119,13 @@ export function registerMenusTools(client: ToastClient) {
       }),
       handler: async (args: { itemGuid: string; outOfStock: boolean; restaurantGuid?: string }) => {
         const restGuid = args.restaurantGuid || client.getRestaurantGuid();
-        const result = await client.patch(
-          `/menus/v2/items/${args.itemGuid}`,
-          { outOfStock86: args.outOfStock },
+        const status = args.outOfStock ? 'OUT_OF_STOCK' : 'IN_STOCK';
+        const result = await client.put(
+          '/stock/v1/inventory/update',
+          [{ guid: args.itemGuid, status }],
           { params: { restaurantGuid: restGuid } }
         );
-        return { success: true, itemGuid: args.itemGuid, outOfStock: args.outOfStock };
+        return { success: true, itemGuid: args.itemGuid, outOfStock: args.outOfStock, status, result };
       },
     },
 
@@ -209,20 +210,10 @@ export function registerMenusTools(client: ToastClient) {
       }),
       handler: async (args: { restaurantGuid?: string }) => {
         const restGuid = args.restaurantGuid || client.getRestaurantGuid();
-        const menus = await client.get<Menu[]>(
-          `/menus/v2/menus`,
-          { restaurantGuid: restGuid }
+        const outOfStockItems = await client.get<any[]>(
+          '/stock/v1/inventory',
+          { restaurantGuid: restGuid, status: 'OUT_OF_STOCK' }
         );
-
-        const allItems: MenuItem[] = [];
-        menus.forEach(menu => {
-          menu.groups.forEach(group => {
-            allItems.push(...group.items);
-          });
-        });
-
-        const outOfStockItems = allItems.filter(item => item.outOfStock86 || item.inheritedOutOfStock86);
-
         return { items: outOfStockItems, count: outOfStockItems.length };
       },
     },
@@ -237,23 +228,17 @@ export function registerMenusTools(client: ToastClient) {
       }),
       handler: async (args: { itemGuids: string[]; outOfStock: boolean; restaurantGuid?: string }) => {
         const restGuid = args.restaurantGuid || client.getRestaurantGuid();
-        const results = await Promise.all(
-          args.itemGuids.map(itemGuid =>
-            client.patch(
-              `/menus/v2/items/${itemGuid}`,
-              { outOfStock86: args.outOfStock },
-              { params: { restaurantGuid: restGuid } }
-            ).catch(err => ({ error: err.message, itemGuid }))
-          )
+        const status = args.outOfStock ? 'OUT_OF_STOCK' : 'IN_STOCK';
+        const result = await client.put(
+          '/stock/v1/inventory/update',
+          args.itemGuids.map(guid => ({ guid, status })),
+          { params: { restaurantGuid: restGuid } }
         );
-
-        const successful = results.filter(r => !(r && typeof r === 'object' && 'error' in r));
-        const failed = results.filter(r => r && typeof r === 'object' && 'error' in r);
-
         return {
-          successCount: successful.length,
-          failCount: failed.length,
-          failed: failed,
+          success: true,
+          updatedCount: args.itemGuids.length,
+          status,
+          result,
         };
       },
     },
