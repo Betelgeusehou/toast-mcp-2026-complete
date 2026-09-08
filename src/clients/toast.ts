@@ -142,6 +142,25 @@ export class ToastClient {
   }
 
   /**
+   * Move a per-call restaurantGuid out of query params and into Toast's
+   * required restaurant header. This applies consistently to reads and writes.
+   */
+  private withRestaurantHeader(config?: AxiosRequestConfig): AxiosRequestConfig {
+    const requestConfig = config || {};
+    const { restaurantGuid, ...queryParams } = (requestConfig.params || {}) as Record<string, any>;
+    return {
+      ...requestConfig,
+      params: queryParams,
+      headers: {
+        ...requestConfig.headers,
+        ...(restaurantGuid
+          ? { 'Toast-Restaurant-External-ID': restaurantGuid }
+          : {}),
+      },
+    };
+  }
+
+  /**
    * Generic GET request with pagination support
    */
   async get<T>(
@@ -174,7 +193,11 @@ export class ToastClient {
     data?: any,
     config?: AxiosRequestConfig
   ): Promise<T> {
-    const response = await this.axiosInstance.post<T>(endpoint, data, config);
+    const response = await this.axiosInstance.post<T>(
+      endpoint,
+      data,
+      this.withRestaurantHeader(config)
+    );
     return response.data;
   }
 
@@ -186,7 +209,11 @@ export class ToastClient {
     data?: any,
     config?: AxiosRequestConfig
   ): Promise<T> {
-    const response = await this.axiosInstance.put<T>(endpoint, data, config);
+    const response = await this.axiosInstance.put<T>(
+      endpoint,
+      data,
+      this.withRestaurantHeader(config)
+    );
     return response.data;
   }
 
@@ -198,7 +225,11 @@ export class ToastClient {
     data?: any,
     config?: AxiosRequestConfig
   ): Promise<T> {
-    const response = await this.axiosInstance.patch<T>(endpoint, data, config);
+    const response = await this.axiosInstance.patch<T>(
+      endpoint,
+      data,
+      this.withRestaurantHeader(config)
+    );
     return response.data;
   }
 
@@ -206,7 +237,10 @@ export class ToastClient {
    * Generic DELETE request
    */
   async delete<T>(endpoint: string, config?: AxiosRequestConfig): Promise<T> {
-    const response = await this.axiosInstance.delete<T>(endpoint, config);
+    const response = await this.axiosInstance.delete<T>(
+      endpoint,
+      this.withRestaurantHeader(config)
+    );
     return response.data;
   }
 
