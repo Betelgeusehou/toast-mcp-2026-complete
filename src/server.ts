@@ -119,11 +119,23 @@ export class ToastMCPServer {
       registerCashTools(this.client),
     ];
 
-    const enableWrites = process.env.TOAST_ENABLE_WRITE_TOOLS === 'true';
+    // Prefer a narrow, comma-separated allowlist. The legacy all-writes flag
+    // remains available for backward compatibility, but is intentionally broad.
+    const enableAllWrites = process.env.TOAST_ENABLE_WRITE_TOOLS === 'true';
+    const enabledWriteTools = new Set(
+      (process.env.TOAST_WRITE_TOOLS || '')
+        .split(',')
+        .map(name => name.trim())
+        .filter(Boolean)
+    );
     let skipped = 0;
     for (const tools of toolModules) {
       for (const tool of tools) {
-        if (!enableWrites && WRITE_TOOLS.has(tool.name)) {
+        if (
+          WRITE_TOOLS.has(tool.name) &&
+          !enableAllWrites &&
+          !enabledWriteTools.has(tool.name)
+        ) {
           skipped++;
           continue;
         }
@@ -131,7 +143,12 @@ export class ToastMCPServer {
       }
     }
 
-    console.error(`[Toast MCP] Registered ${this.tools.size} tools${skipped ? ` (${skipped} write tools disabled; set TOAST_ENABLE_WRITE_TOOLS=true to enable)` : ''}`);
+    const enabledWrites = Array.from(this.tools.keys()).filter(name => WRITE_TOOLS.has(name));
+    console.error(
+      `[Toast MCP] Registered ${this.tools.size} tools` +
+      `${skipped ? ` (${skipped} write tools disabled)` : ''}` +
+      `${enabledWrites.length ? `; enabled writes: ${enabledWrites.join(', ')}` : ''}`
+    );
   }
 
   /**
@@ -185,18 +202,14 @@ export class ToastMCPServer {
     // List available tools
     this.server.setRequestHandler(ListToolsRequestSchema, async () => {
       return {
-        tools: Array.from(this.tools.values()).map(tool => ({
-          name: tool.name,
-          description: tool.description,
-          inputSchema: tool.inputSchema.shape
+        tools: Array.from(this.tools.values()).map(tool => {
+          const inputSchema: any = tool.inputSchema.shape
             ? {
                 type: 'object',
                 properties: Object.entries(tool.inputSchema.shape).reduce(
                   (acc, [key, value]: [string, any]) => {
                     // Unwrap ZodOptional/ZodDefault/ZodNullable so the advertised
-                    // type matches what validation actually expects. Without this,
-                    // every optional number was advertised as a string and then
-                    // rejected with "Expected number, received string".
+                    // type matches what validation actually expects.
                     let inner: any = value;
                     while (inner?._def?.innerType) inner = inner._def.innerType;
                     const t = inner?._def?.typeName;
@@ -209,9 +222,7 @@ export class ToastMCPServer {
                             t === 'ZodEnum' ? 'string' :
                             'string',
                       description: value.description || inner?.description || '',
-                      ...(t === 'ZodEnum' && {
-                        enum: inner._def.values,
-                      }),
+                      ...(t === 'ZodEnum' && { enum: inner._def.values }),
                     };
                     return acc;
                   },
@@ -221,8 +232,26 @@ export class ToastMCPServer {
                   .filter(([_, value]: [string, any]) => !value.isOptional())
                   .map(([key]) => key),
               }
-            : tool.inputSchema,
-        })),
+            : tool.inputSchema;
+
+          // The confirmation lock must be visible to MCP clients; previously it
+          // was enforced at runtime but absent from tools/list.
+          if (WRITE_TOOLS.has(tool.name) && inputSchema?.type === 'object') {
+            inputSchema.properties.confirm_write = {
+              type: 'boolean',
+              description: 'Must be true to confirm this POS-changing operation.',
+            };
+            inputSchema.required = Array.from(
+              new Set([...(inputSchema.required || []), 'confirm_write'])
+            );
+          }
+
+          return {
+            name: tool.name,
+            description: tool.description,
+            inputSchema,
+          };
+        }),
       };
     });
 
