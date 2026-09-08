@@ -212,9 +212,6 @@ export class ToastMCPServer {
                       ...(t === 'ZodEnum' && {
                         enum: inner._def.values,
                       }),
-                      ...(value.isOptional() && {
-                        optional: true,
-                      }),
                     };
                     return acc;
                   },
