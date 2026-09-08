@@ -43,8 +43,8 @@ export function registerInventoryTools(client: ToastClient) {
       handler: async (args: { itemGuid: string; restaurantGuid?: string }) => {
         const restaurantGuid = args.restaurantGuid || client.getRestaurantGuid();
         const items = await client.post<MenuItemInventory[]>(
-          '/stock/v1/inventory',
-          [{ guid: args.itemGuid }],
+          '/stock/v1/inventory/search',
+          { guids: [args.itemGuid] },
           restaurantConfig(restaurantGuid)
         );
         return { stockItem: items[0] || null };
